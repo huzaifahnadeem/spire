@@ -92,8 +92,9 @@ int Script_History_Seq;
 int Script_Breaker_Index;
 int Script_Breaker_Val;
 sp_time Next_Button, Button_Pressed_Duration;
-// itrc_data proxy_data;
-int ipc_sock_proxy;
+//// itrc_data proxy_data;
+// int ipc_sock_proxy;
+// extern int ipc_sock_proxy;
 
 extern int32u My_Global_Configuration_Number;
 
@@ -168,11 +169,8 @@ void *master_connection(void *arg)
     //FD_ZERO(&active_fd_set);
     //FD_SET(ipc_sock, &active_fd_set);
 
-    // E_attach_fd(ipc_sock, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY);
-    // E_attach_fd(ipc_sock, READ_FD, Read_From_Master, ipc_sock_proxy, (void *)proxy_data, MEDIUM_PRIORITY);
-    E_attach_fd(ipc_sock, READ_FD, Read_From_Master, ipc_sock_proxy, NULL, MEDIUM_PRIORITY);
-    // E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
-    E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, ipc_sock_proxy, NULL, MEDIUM_PRIORITY);
+    E_attach_fd(ipc_sock, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY);
+    E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
 
     E_handle_events();
 

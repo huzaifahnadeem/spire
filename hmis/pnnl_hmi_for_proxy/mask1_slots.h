@@ -369,11 +369,11 @@ static int slotButtonPressedEvent(PARAM *p, int id, DATA *dptr)
       ps.incarnation = My_Incarnation;
       ps.seq_num = Seq_Num;
       mess = PKT_Construct_HMI_Command_Msg(ps, MAX_EMU_RTU + My_ID, PNNL, BREAKER_ON, i);
-
       mess->global_configuration_number=My_Global_Configuration_Number;
-      nbytes = sizeof(signed_message) + mess->len;
       Seq_Num++;
-      IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_in.ipc_remote);
+      nbytes = sizeof(signed_message) + mess->len;
+      // IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_in.ipc_remote);
+      forward_to_proxy(mess);
       free(mess);
       return 0;
     }
@@ -417,9 +417,10 @@ static int slotButtonReleasedEvent(PARAM *p, int id, DATA *dptr)
       mess = PKT_Construct_HMI_Command_Msg(ps, MAX_EMU_RTU + My_ID, PNNL, BREAKER_OFF, i);
 
       mess->global_configuration_number=My_Global_Configuration_Number;
-      nbytes = sizeof(signed_message) + mess->len;
       Seq_Num++;
-      IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_in.ipc_remote);
+      // nbytes = sizeof(signed_message) + mess->len;
+      // IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_in.ipc_remote);
+      forward_to_proxy(mess);
       free(mess);
       return 0;
     }

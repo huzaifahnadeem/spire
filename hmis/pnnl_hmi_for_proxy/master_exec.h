@@ -126,7 +126,10 @@ typedef struct {
 }
 DATA;
 
+extern int ipc_sock_proxy;
+
 void Init_Master(DATA *);
 void Read_From_Master(int s, int dummy1, void *dummy2);
 void Execute_Script(int s, int dummy1, void *dummy2);
 void Append_History(const char *m, ...);
+void forward_to_proxy(signed_message *mess);
