@@ -1,0 +1,51 @@
+# Notes: 	scada_packets is needed by net_wrapper
+#			openssl_rsa, tc_wrapper is needed by scada_packets
+.PHONY: clean
+
+SPIRE = ../..
+
+CC			 = gcc
+CFLAGS		+= -Wall -W -g
+TARGET		 = proxy
+OBJECTS		 = proxy.o \
+				$(SPIRE)/common/net_wrapper.o \
+				$(SPIRE)/common/itrc.o \
+				$(SPIRE)/common/scada_packets.o \
+				$(SPIRE)/common/openssl_rsa.o \
+        		$(SPIRE)/common/tc_wrapper.o \
+				$(SPIRE)/common/key_value.o \
+				$(SPIRE)/common/conf_net_wrapper.o \
+
+LDFLAGS		 =
+LIBS		 = -lpthread \
+				$(SPIRE)/prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
+				$(SPIRE)/spines/libspines/libspines.a \
+				$(SPIRE)/prime/stdutil/lib/libstdutil.a \
+				$(SPIRE)/spines/libspread-util/src/libspread-util.a \
+				-lrt -ldl -lm -lcrypto
+INC			 = -I$(SPIRE)/ -I $(SPIRE)/prime/stdutil/include -I $(SPIRE)/spines/libspines/ -I $(SPIRE)/spines/libspread-util/include \
+				-I$(SPIRE)/prime/stdutil/include \
+				-I$(SPIRE)/spines/libspines/ -I$(SPIRE)/common -I$(SPIRE)/prime/libspread-util/include
+HEADERS		 = $(SPIRE)/common/def.h \
+        		$(SPIRE)/common/itrc.h \
+				$(SPIRE)/common/net_wrapper.h \
+				$(SPIRE)/common/scada_packets.h \
+				$(SPIRE)/common/openssl_rsa.h \
+				$(SPIRE)/common/tc_wrapper.h \
+				$(SPIRE)/common/key_value.h \
+				$(SPIRE)/common/conf_net_wrapper.h \
+
+all: $(TARGET)
+
+clean:
+	rm -f proxy.o
+	rm -f $(TARGET)
+
+# $(TARGET):  $(OBJECTS) 
+# 	$(CC) $(LDFLAGS) -o $(TARGET) $(OBJECTS) $(LIBS)
+
+proxy.o: proxy.c $(HEADERS) $(OBJECTS) 
+	$(CC) -c $(CFLAGS) $(INC) -o proxy.o proxy.c $(LIBS)
+
+# %.o:	%.c
+# 	$(CC) $(CFLAGS) $(INC) -c -o $*.o $*.c

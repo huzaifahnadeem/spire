@@ -45,9 +45,9 @@
  #
  #
  
-.PHONY: all clean
+.PHONY: all clean proxy pnnl_for_proxy
 
-SUBDIRS=jhu_hmi pnnl_hmi heco_3breaker heco_5breaker heco_timing ems_hmi
+SUBDIRS=jhu_hmi pnnl_hmi heco_3breaker heco_5breaker heco_timing ems_hmi proxy pnnl_hmi_for_proxy
 
 all: $(SUBDIRS)
 	for dir in $(SUBDIRS); do \
@@ -58,3 +58,9 @@ clean:
 	for dir in $(SUBDIRS); do \
     	( $(MAKE) -C $$dir clean); \
 	done
+
+proxy:
+	$(MAKE) -C proxy
+
+pnnl_for_proxy:
+	$(MAKE) -C pnnl_hmi_for_proxy

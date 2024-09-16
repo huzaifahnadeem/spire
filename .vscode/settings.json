@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "itrc.h": "c",
+        "net_wrapper.h": "c",
+        "def.h": "c",
+        "tc_wrapper.h": "c",
+        "openssl_rsa.h": "c",
+        "spines_lib.h": "c",
+        "*.ipp": "c"
+    }
+}
