@@ -81,7 +81,7 @@ extern "C" {
 
 unsigned int Seq_Num;
 int ipc_sock;
-itrc_data itrc_in, itrc_out;
+//itrc_data itrc_in;//, itrc_out;
 struct timeval min_wait;
 data_model the_model;
 int Script_Running;
@@ -109,7 +109,7 @@ void setup_for_proxy()
     // sprintf(proxy_data.ipc_remote, "%s%d", (char *)HMI_IPC_HMIPROXY, My_ID);
     
     // ipc_sock_proxy = IPC_DGram_Sock(proxy_data.ipc_local);
-    ipc_sock_proxy = IPC_DGram_Sock("/tmp/huzaifah");
+    ipc_sock_proxy = IPC_DGram_Sock("/tmp/hmi-to-proxy-ipc-sock");
 
 }
 
@@ -124,36 +124,36 @@ void itrc_init(int ac, char **av)
         exit(EXIT_FAILURE);
     }
 
-    My_Global_Configuration_Number = 0;
-    Init_SM_Replicas();
+    // My_Global_Configuration_Number = 0;
+    // Init_SM_Replicas();
 
-    // NET Setup
-    gettimeofday(&now, NULL);
-    My_Incarnation = now.tv_sec;
-    Seq_Num = 1;
-    Type = HMI_TYPE;
-    My_ID = PNNL;
-    //Prime_Client_ID = (NUM_SM + 1) + MAX_EMU_RTU + My_ID;
-    Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
-    My_IP = getIP();
-    // Setup IPC for HMI main thread
-    memset(&itrc_in, 0, sizeof(itrc_data));
-    sprintf(itrc_in.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(itrc_in.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    sprintf(itrc_in.ipc_local, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
-    sprintf(itrc_in.ipc_remote, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
-    ipc_sock = IPC_DGram_Sock(itrc_in.ipc_local);
+    // // NET Setup
+    // gettimeofday(&now, NULL);
+    // My_Incarnation = now.tv_sec;
+    // Seq_Num = 1;
+    // Type = HMI_TYPE;
+    // My_ID = PNNL_W_PROXY;
+    // Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
+    // My_IP = getIP();
+    
+    // // Setup IPC for HMI main thread
+    // memset(&itrc_in, 0, sizeof(itrc_data));
+    // sprintf(itrc_in.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    // sprintf(itrc_in.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(itrc_in.ipc_local, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
+    // sprintf(itrc_in.ipc_remote, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
+    // ipc_sock = IPC_DGram_Sock(itrc_in.ipc_local);
 
-    // Setup IPC for Worker thread (itrc client)
-    memset(&itrc_out, 0, sizeof(itrc_data));
-    sprintf(itrc_out.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(itrc_out.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    sprintf(itrc_out.ipc_local, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
-    sprintf(itrc_out.ipc_remote, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
-    ip = strtok(av[1], ":");
-    sprintf(itrc_out.spines_ext_addr, "%s", ip);
-    ip = strtok(NULL, ":");
-    sscanf(ip, "%d", &itrc_out.spines_ext_port);
+    // // Setup IPC for Worker thread (itrc client)
+    // memset(&itrc_out, 0, sizeof(itrc_data));
+    // sprintf(itrc_out.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    // sprintf(itrc_out.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(itrc_out.ipc_local, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
+    // sprintf(itrc_out.ipc_remote, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
+    // ip = strtok(av[1], ":");
+    // sprintf(itrc_out.spines_ext_addr, "%s", ip);
+    // ip = strtok(NULL, ":");
+    // sscanf(ip, "%d", &itrc_out.spines_ext_port);
 
     setup_for_proxy();
 }
@@ -236,13 +236,14 @@ int main(int ac, char **av)
 {   
     PARAM p;
     int s;
-    pthread_t tid, itid;
+    // pthread_t tid, itid;
+    pthread_t tid;
 
     signal(SIGPIPE, SIG_IGN);
     modelInit();
 
     itrc_init(ac, av);
-    pthread_create(&itid, NULL, &ITRC_Client, (void *)&itrc_out);
+    // pthread_create(&itid, NULL, &ITRC_Client, (void *)&itrc_out);
     pthread_create(&tid, NULL, &master_connection, NULL);
 
     pvInit(ac,av,&p);
