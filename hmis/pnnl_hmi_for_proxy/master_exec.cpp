@@ -101,7 +101,7 @@ void forward_to_proxy(signed_message *mess) {
     printf("----------------------in forward_to_proxy()\n");
     int nbytes, ret;
     nbytes = sizeof(signed_message) + mess->len;
-    ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, "/tmp/huzaifah");
+    ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock");
     if (ret < 0) {
         perror("IPC_Send: error\n");
     }

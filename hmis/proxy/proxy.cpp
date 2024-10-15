@@ -93,7 +93,9 @@ void *listen_on_hmi_sock(void *arg){
             // perror(buf);
             mess = (signed_message *)buf;
             nbytes = sizeof(signed_message) + mess->len;
-            IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
+            // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
+            // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc");
+            IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc4");
             perror("mess forwarded to itrc thread\n");
             printf("mess forwarded to itrc thread (printf)\n");
         }
@@ -129,7 +131,9 @@ void itrc_init(char **av)
     // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
     sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)"/tmp/hmiproxy_ipc_main", My_ID);
     sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)"/tmp/hmiproxy_ipc_itrc", My_ID);
-    ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
+    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
+    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main");
+    ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main4");
 
     // Setup IPC for Worker thread (itrc client)
     memset(&itr_client_data, 0, sizeof(itrc_data));
