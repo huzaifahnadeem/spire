@@ -40,39 +40,6 @@ void setup_ipc_for_hmi()
     ipc_sock_hmi = IPC_DGram_Sock("/tmp/hmi-to-proxy-ipc-sock");
 }
 
-// this one is for receving a message that is just a single char
-// void *listen_on_hmi_sock(void *arg){
-//     UNUSED(arg);
-
-//     int ret, nbytes; 
-//     // char buf[MAX_LEN];
-//     // nbytes = sizeof(buf);
-//     // ret = IPC_Recv(ipc_sock_hmi, (void *)buf, nbytes);
-
-
-//     // char* mess = "Empty message";
-//     // nbytes = sizeof(mess);
-//     // char buf[sizeof(mess)];
-//     // ret = IPC_Recv(ipc_sock_hmi, (void *)buf, nbytes);
-
-//     for (;;) {
-//         nbytes = sizeof('c');
-//         char buf[1];
-//         ret = IPC_Recv(ipc_sock_hmi, (void *)buf, nbytes);
-
-//         if (ret < 0) {
-//             perror("IPC_recv: error\n");
-//         }
-//         else {
-//             perror("received something (perror)");
-//             printf("received something (printf)");
-//             perror(buf);
-//         }
-//     }
-//     // return NULL;
-
-// }
-
 void *listen_on_hmi_sock(void *arg){
     UNUSED(arg);
 
