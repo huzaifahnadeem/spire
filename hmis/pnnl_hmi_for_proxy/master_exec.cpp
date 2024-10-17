@@ -142,8 +142,6 @@ void Process_Config_Msg(signed_message * conf_mess,int mess_size){
 
 
 void Read_From_Master(int s, int dummy1, void *dummy2) 
-// void Read_From_Master(int s, int ipc_sock_proxy, void *proxy_data) 
-// void Read_From_Master(int s, int ipc_sock_proxy, void *dummy2) 
 {   
     int ret; 
     char buf[MAX_LEN];
@@ -160,7 +158,6 @@ void Read_From_Master(int s, int dummy1, void *dummy2)
         return;
     }
     Process_Message((signed_message *)buf);
-    // forward_to_proxy((signed_message *)buf, ipc_sock_proxy);
 }
 
 void Process_Message(signed_message *mess) 
@@ -213,7 +210,6 @@ void Process_Message(signed_message *mess)
     }
 }
 
-// void Execute_Script(int s, int ipc_sock_proxy2, void *dummy2)
 void Execute_Script(int s, int dummy1, void *dummy2)
 {   
     char buf[1024];

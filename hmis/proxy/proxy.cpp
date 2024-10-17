@@ -2,12 +2,14 @@
 //Include headers for socket management
 #include <stdio.h>
 #include <stdlib.h>
+#include <iostream>
 #include <errno.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <signal.h>
+#include <arpa/inet.h>
 
 #include <pthread.h>
 #include <cstring> // for memset
@@ -18,7 +20,11 @@ extern "C" {
     #include "../common/itrc.h"
     #include "spu_events.h"
     #include "stdutil/stdcarr.h"
+    #include "spines_lib.h"
 }
+
+#define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+#define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
 
 int ipc_sock_hmi;
 // itrc_data proxy_data;
@@ -118,6 +124,8 @@ void itrc_init(char **av)
     sscanf(ip, "%d", &itr_client_data.spines_ext_port);
 }
 
+void setup_datacoll_spines_sock(char **av);
+
 int main(int ac, char **av){
     // Usage check
     if (ac < 2 || ac > 3) {
@@ -126,18 +134,60 @@ int main(int ac, char **av){
         exit(EXIT_FAILURE);
     }
 
-    pthread_t hmi_listen_thread;
-    pthread_t itrc_thread;
+    // pthread_t hmi_listen_thread;
+    // pthread_t itrc_thread;
 
-    setup_ipc_for_hmi();
-    itrc_init(av);
+    // setup_ipc_for_hmi();
+    // itrc_init(av);
 
-    pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL);
-    pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data);
+    // pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL);
+    // pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data);
     
-    pthread_join(hmi_listen_thread, NULL);
-    pthread_join(itrc_thread, NULL);
+    // pthread_join(hmi_listen_thread, NULL);
+    // pthread_join(itrc_thread, NULL);
 
-    // printf("hello\n");
+    setup_datacoll_spines_sock(av);
+    
     return 0;
+}
+
+void setup_datacoll_spines_sock(char **av) {
+    int proto, spines_sock, num, ret;
+    char* spinesd_ip_addr = strtok(strdup(av[1]), ":");
+    int spinesd_port = atoi(strtok(NULL, ":"));
+    struct timeval spines_timeout, *t;
+    
+    // proto = SPINES_PRIORITY;
+    proto = SPINES_RELIABLE;
+    
+    /* Setup the spines timeout frequency - if disconnected, will try to reconnect
+     *  this often */
+    spines_timeout.tv_sec  = DATA_COLLECTOR_SPINES_CONNECT_SEC;
+    spines_timeout.tv_usec = DATA_COLLECTOR_SPINES_CONNECT_USEC;
+
+    spines_sock = -1; // -1 is not a real socket so init to that
+    spines_sock = Spines_SendOnly_Sock(spinesd_ip_addr, spinesd_port, proto);
+    if (spines_sock < 0) {
+        std::cout << "setup_datacoll_spines_sock(): Unable to connect to Spines, trying again soon\n";
+        t = &spines_timeout; 
+    }
+    else {
+        std::cout << "setup_datacoll_spines_sock(): Connected to Spines\n";
+        t = NULL;
+    }
+
+    struct sockaddr_in dest;
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(9999);
+    dest.sin_addr.s_addr = inet_addr("192.168.0.106");
+    int i = 64; // 'A' is 65
+    while (1) {
+        i++;
+        char msg;
+        msg = char(i);
+        std::cout << "sending\n";
+        ret = spines_sendto(spines_sock, &msg, sizeof(char), 0, (struct sockaddr *)&dest, sizeof(struct sockaddr));
+        std::cout << "sent with return code ret =" << ret << "\n";
+        sleep(5);
+    }
 }
