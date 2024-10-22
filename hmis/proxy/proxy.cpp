@@ -103,14 +103,8 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port) {
     int proto;//, num, ret;
     int spines_timeout;
-    // char* spinesd_ip_addr = strtok(strdup(av[1]), ":");
-    // int spinesd_port = atoi(strtok(NULL, ":"));
-
-    // char* dc_ip_addr = strtok(strdup(av[2]), ":");
-    // int dc_port = atoi(strtok(NULL, ":"));
     
-    // proto = SPINES_PRIORITY;
-    proto = SPINES_RELIABLE;
+    proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
     
     /* Setup the spines timeout frequency - if disconnected, will try to reconnect
      *  this often */
