@@ -60,6 +60,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
+
 #include "../common/net_wrapper.h" 
 #include "../common/def.h"
 #include "../common/openssl_rsa.h"
@@ -128,7 +129,7 @@ int main(int argc, char *argv[])
     int i, num, ret, nBytes, sub,ret2;
     int ipc_sock;
     struct timeval now;
-    struct sockaddr_in;
+    // struct sockaddr_in;
     fd_set mask, tmask;
     char buff[MAX_LEN];
     signed_message *mess;
@@ -280,6 +281,39 @@ int main(int argc, char *argv[])
         }
     FD_SET(ipc_sock, &mask);
 
+    // set up for data collector connection (TODO: move this somewhere up, it is here only to make it more obvious while im working on it)
+    int dc_proto, dc_spines_sock, dc_num, dc_ret;
+    // char* dc_spinesd_ip_addr = strtok(strdup(argv[1]), ":");
+    // int dc_spinesd_port = atoi(strtok(NULL, ":"));
+    char* dc_spinesd_ip_addr = "192.168.0.105";
+    int dc_spinesd_port = 8120;
+    struct timeval dc_spines_timeout, *dc_t;
+    // dc_proto = SPINES_PRIORITY;
+    dc_proto = SPINES_RELIABLE; // use this not priority. might need to think more though (but thats for later)
+    /* Setup the spines timeout frequency - if disconnected, will try to reconnect
+     *  this often */
+    // #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+    // #define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
+    dc_spines_timeout.tv_sec  = 2; // DATA_COLLECTOR_SPINES_CONNECT_SEC;
+    dc_spines_timeout.tv_usec = 0; // DATA_COLLECTOR_SPINES_CONNECT_USEC;
+    dc_spines_sock = -1; // -1 is not a real socket so init to that
+    dc_spines_sock = Spines_SendOnly_Sock(dc_spinesd_ip_addr, dc_spinesd_port, dc_proto);
+    if (dc_spines_sock < 0) {
+        // std::cout << "setup_datacoll_spines_sock(): Unable to connect to Spines, trying again soon\n";
+        printf("setting up data collecor conn.: Unable to connect to Spines, trying again soon\n");
+        dc_t = &dc_spines_timeout; 
+    }
+    else {
+        // std::cout << "setup_datacoll_spines_sock(): Connected to Spines\n";
+        printf("setting up data collector conn.: Connected to Spines\n");
+        dc_t = NULL;
+    }
+    struct sockaddr_in dc_dest;
+    dc_dest.sin_family = AF_INET;
+    dc_dest.sin_port = htons(9999);
+    dc_dest.sin_addr.s_addr = inet_addr("192.168.0.105");
+    int dc_i = 96; // 'a' is 97
+
     while (1) {
         tmask = mask;
         num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
@@ -341,6 +375,15 @@ int main(int argc, char *argv[])
                     if(ret!=nBytes){
                         printf("PROXY: error sending to SM\n");
                     }
+
+                    // sending to data collector:
+                    dc_i++;
+                    char dc_msg;
+                    dc_msg = (char) dc_i;// char(dc_i);
+                    printf("sending message to data collector\n");
+                    dc_ret = spines_sendto(dc_spines_sock, &dc_msg, sizeof(char), 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
+                    printf("message sent to data collector with ret = ");
+                    printf("%d\n", dc_ret);
                 }
             }
         }
