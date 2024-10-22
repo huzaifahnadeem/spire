@@ -124,22 +124,69 @@ void itrc_init(int ac, char **av)
         exit(EXIT_FAILURE);
     }
 
+    // My_Global_Configuration_Number = 0;
+    // Init_SM_Replicas();
+
+    // // NET Setup
+    // gettimeofday(&now, NULL);
+    // My_Incarnation = now.tv_sec;
+    // Seq_Num = 1;
+    // Type = HMI_TYPE;
+    // My_ID = PNNL_W_PROXY;
+    // Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
+    // My_IP = getIP();
+    
+    // // Setup IPC for HMI main thread
+    // memset(&itrc_in, 0, sizeof(itrc_data));
+    // sprintf(itrc_in.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    // sprintf(itrc_in.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(itrc_in.ipc_local, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
+    // sprintf(itrc_in.ipc_remote, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
+    // ipc_sock = IPC_DGram_Sock(itrc_in.ipc_local);
+
+    // // Setup IPC for Worker thread (itrc client)
+    // memset(&itrc_out, 0, sizeof(itrc_data));
+    // sprintf(itrc_out.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    // sprintf(itrc_out.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(itrc_out.ipc_local, "%s%d", (char *)HMI_IPC_ITRC, My_ID);
+    // sprintf(itrc_out.ipc_remote, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
+    // ip = strtok(av[1], ":");
+    // sprintf(itrc_out.spines_ext_addr, "%s", ip);
+    // ip = strtok(NULL, ":");
+    // sscanf(ip, "%d", &itrc_out.spines_ext_port);
+
     setup_for_proxy();
 }
 
-// void *master_connection(void *arg) 
-// {
-//     UNUSED(arg);
+void *master_connection(void *arg) 
+{
+    UNUSED(arg);
 
-//     E_init();
+    E_init();
+    //fd_set active_fd_set, read_fd_set;
 
-//     E_attach_fd(ipc_sock, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY);
-//     E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
+    // Init data structures for select()
+    //FD_ZERO(&active_fd_set);
+    //FD_SET(ipc_sock, &active_fd_set);
 
-//     E_handle_events();
+    // E_attach_fd(ipc_sock, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY);
+    E_attach_fd(ipc_sock_proxy, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY); // Read_From_Master called when there is a message to be received from the proxy
+    E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
 
-//     return NULL;
-// }
+    E_handle_events();
+
+    /* while(1) {
+
+        read_fd_set = active_fd_set;
+        select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
+        
+        if(FD_ISSET(ipc_sock, &read_fd_set)) {
+            Read_From_Master(ipc_sock);
+        }
+    } */
+
+    return NULL;
+}
 
 int pvMain(PARAM *p)
 {
@@ -171,13 +218,13 @@ int main(int ac, char **av)
 {   
     PARAM p;
     int s;
-    // pthread_t tid, itid;
     pthread_t tid;
 
     signal(SIGPIPE, SIG_IGN);
     modelInit();
 
     itrc_init(ac, av);
+    pthread_create(&tid, NULL, &master_connection, NULL);
 
     pvInit(ac,av,&p);
     /* here you may interpret ac,av and set p->user to your data */

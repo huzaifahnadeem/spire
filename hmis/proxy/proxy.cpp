@@ -42,7 +42,10 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
 void setup_ipc_for_hmi();
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port);
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port);
+void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
+void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
+void send_to_data_collector(char msg); // TODO: adjust param to signed mess or something
 
 int main(int ac, char **av){
     std::string spinesd_ip_addr; // for spines daemon
@@ -54,13 +57,15 @@ int main(int ac, char **av){
 
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
+    pthread_t handle_msg_from_itrc_thread;
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
     setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
 
-    pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL);
-    pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data);
+    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client
+    pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
+    pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
     pthread_join(hmi_listen_thread, NULL);
     pthread_join(itrc_thread, NULL);
@@ -204,10 +209,46 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port)
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
 }
 
+void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2) // called by handler_msg_from_itrc
+{   
+    int ret; 
+    int nbytes;
+    char buf[MAX_LEN];
+    signed_message *mess;
+
+    UNUSED(dummy1);
+    UNUSED(dummy2);
+
+    // Receive from ITRC Client"
+    std::cout << "There is a message from the ITRC Client\n";
+    ret = IPC_Recv(s, buf, MAX_LEN);
+    if (ret < 0) printf("recv_msg_from_itrc(): IPC_Rev failed\n");
+    
+    // Forward to HMI
+    mess = (signed_message *)buf;
+    nbytes = sizeof(signed_message) + mess->len;
+    IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock"); // TODO: change static string
+    std::cout << "The message has been forwarded to the HMI\n";
+
+    // Forward to the Data Collector:
+    send_to_data_collector('!'); // TODO: change this to the signed message or whatever once that it implemented
+}
+
+void *handler_msg_from_itrc(void *arg)
+{
+    UNUSED(arg);
+
+    E_init();
+    E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    E_handle_events();
+
+    return NULL;
+}
+
 void *listen_on_hmi_sock(void *arg){
     UNUSED(arg);
 
-    int ret, dc_ret; 
+    int ret; 
     char buf[MAX_LEN];
     signed_message *mess;
     int nbytes;
@@ -236,12 +277,17 @@ void *listen_on_hmi_sock(void *arg){
             perror("mess forwarded to itrc thread\n");
             printf("mess forwarded to itrc thread (printf)\n");
 
-            std::cout << "sending to data collector\n";
             dc_i++;
             dc_msg = char(dc_i);
-            dc_ret = spines_sendto(dc_spines_sock, &dc_msg, sizeof(char), 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
-            std::cout << "sent to data collector with return code ret =" << dc_ret << "\n";
+            send_to_data_collector(dc_msg);
         }
     }
-    // return NULL;
+    return NULL;
+}
+
+void send_to_data_collector(char msg) { // TODO: adjust param to signed mess or something
+    int ret;
+    std::cout << "sending to data collector\n";
+    ret = spines_sendto(dc_spines_sock, &msg, sizeof(char), 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    std::cout << "sent to data collector with return code ret =" << ret << "\n";
 }
