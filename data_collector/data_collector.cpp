@@ -26,13 +26,12 @@ extern "C" {
     #include "spines_lib.h"
 }
 
-#define DATAFILE "./data_log.txt"
 #define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 #define SPINES_CONNECT_USEC 0
 
-void write_data(char* data_buff, size_t data_buff_len, std::string data_file_path);
+void write_data(signed_message* data, std::string data_file_path);
 void usage_check(int ac, char **av);
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string data_file_path);
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path);
 
 int main(int ac, char **av){
     std::string spinesd_ip_addr; // for spines daemon
@@ -82,7 +81,7 @@ int main(int ac, char **av){
                     continue;
                 }
                 std::cout << "data_collector: Received some data from spines daemon\n";
-                write_data(buff, MAX_LEN, data_file_path);
+                write_data((signed_message *)buff, data_file_path);
                 std::cout << "data_collector: Data has been written to disk\n";
             }
         }
@@ -114,22 +113,27 @@ void usage_check(int ac, char **av) {
     }
 }
 
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string data_file_path) {
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path) {
     usage_check(ac, av);
 
     int colon_pos;
     std::string spinesd_arg = av[1];
     std::string my_port_arg = av[2];
-
+    
+    // spines daemon address and port:
     colon_pos = -1;
     colon_pos = spinesd_arg.find(':');
     spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
     spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
 
+    // data collector (my) port:
     my_port = std::stoi(my_port_arg);
+
+    // data file:
+    data_file_path = av[3];
 }
 
-void write_data(char *data_buff, size_t data_buff_len, std::string data_file_path) {
+void write_data(signed_message *data, std::string data_file_path) {
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
 
@@ -138,6 +142,96 @@ void write_data(char *data_buff, size_t data_buff_len, std::string data_file_pat
     
     datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
     timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    datafile << "Time: " << std::ctime(&timestamp) << "From: " << "<from>\n" << "Data: " << data_buff << "\n\n";
+    datafile << "=== New Entry ===\n";
+    datafile << "Time: " << std::ctime(&timestamp) << "From: " << "<from>\n";
+    datafile << "Data: \n";
+
+    datafile << "\t" << data->sig << "\n";
+    datafile << "\t" << data->mt_num << "\n";
+    datafile << "\t" << data->mt_index << "\n";
+    datafile << "\t" << data->site_id << "\n";
+    datafile << "\t" << data->machine_id << "\n";
+    datafile << "\t" << data->len << "\n";
+    datafile << "\t" << data->type << "\n";
+    datafile << "\t" << data->incarnation << "\n";
+    datafile << "\t" << data->monotonic_counter << "\n";
+    datafile << "\t" << data->global_configuration_number << "\n";
+
+    if (data->type == HMI_COMMAND) { // This type is SENT BY the HMI
+        hmi_command_msg * msg_content = NULL;
+        msg_content = (hmi_command_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << "\t\t" << msg_content_seq.incarnation << "\n";
+        datafile << "\t\t" << msg_content_seq.seq_num << "\n";
+        datafile << "\t\t" << msg_content->hmi_id << "\n";
+        datafile << "\t\t" << msg_content->scen_type << "\n";
+        datafile << "\t\t" << msg_content->type << "\n";
+        datafile << "\t\t" << msg_content->ttip_pos << "\n";
+    }
+    else if (data->type == HMI_UPDATE) { // This type is RECEIVED BY the HMI-side Proxy
+        hmi_update_msg * msg_content = NULL;
+        msg_content = (hmi_update_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << "\t\t" << msg_content_seq.incarnation << "\n";
+        datafile << "\t\t" << msg_content_seq.seq_num << "\n";
+        datafile << "\t\t" << msg_content->scen_type << "\n";
+        datafile << "\t\t" << msg_content->sec << "\n";
+        datafile << "\t\t" << msg_content->usec << "\n";
+        datafile << "\t\t" << msg_content->len << "\n";
+    }
+    else if (data->type == PRIME_OOB_CONFIG_MSG) { // This type is RECEIVED BY the HMI-side Proxy & the RTU/PLC-side Proxy (from ITRC)
+        config_message * msg_content = NULL;
+        msg_content = (config_message *)(data + 1);
+        datafile << "\t\t" << msg_content->N << "\n";
+        datafile << "\t\t" << msg_content->f << "\n";
+        datafile << "\t\t" << msg_content->k << "\n";
+        datafile << "\t\t" << msg_content->num_sites << "\n";
+        datafile << "\t\t" << msg_content->num_cc << "\n";
+        datafile << "\t\t" << msg_content->num_dc << "\n";
+        datafile << "\t\t" << msg_content->num_cc_replicas << "\n";
+        datafile << "\t\t" << msg_content->num_dc_replicas << "\n";
+        datafile << "\t\t" << msg_content->tpm_based_id << "\n";
+        datafile << "\t\t" << msg_content->replica_flag << "\n";
+        datafile << "\t\t" << msg_content->sm_addresses << "\n";
+        datafile << "\t\t" << msg_content->spines_ext_addresses << "\n";
+        datafile << "\t\t" << msg_content->spines_ext_port << "\n";
+        datafile << "\t\t" << msg_content->spines_int_addresses << "\n";
+        datafile << "\t\t" << msg_content->spines_int_port << "\n";
+        datafile << "\t\t" << msg_content->prime_addresses << "\n";
+        datafile << "\t\t" << msg_content->initial_state << "\n";
+        datafile << "\t\t" << msg_content->initial_state_digest << "\n";
+        datafile << "\t\t" << msg_content->frag_num << "\n";
+    }
+    else if (data->type == RTU_FEEDBACK) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from ITRC)
+        rtu_feedback_msg * msg_content = NULL;
+        msg_content = (rtu_feedback_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << "\t\t" << msg_content_seq.incarnation << "\n";
+        datafile << "\t\t" << msg_content_seq.seq_num << "\n";
+        datafile << "\t\t" << msg_content->scen_type << "\n";
+        datafile << "\t\t" << msg_content->type << "\n";
+        datafile << "\t\t" << msg_content->sub << "\n";
+        datafile << "\t\t" << msg_content->rtu << "\n";
+        datafile << "\t\t" << msg_content->offset << "\n";
+        datafile << "\t\t" << msg_content->val << "\n";
+    }
+    else if (data->type == RTU_DATA) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from RTUs/PLCs)
+        rtu_data_msg * msg_content = NULL;
+        msg_content = (rtu_data_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << "\t\t" << msg_content_seq.incarnation << "\n";
+        datafile << "\t\t" << msg_content_seq.seq_num << "\n";
+        datafile << "\t\t" << msg_content->rtu_id << "\n";
+        datafile << "\t\t" << msg_content->scen_type << "\n";
+        datafile << "\t\t" << msg_content->sec << "\n";
+        datafile << "\t\t" << msg_content->usec << "\n";
+        datafile << "\t\t" << msg_content->data << "\n";
+    }
+    else {
+        std::cout << "Received a message of an unknown type. Type = " << data->type << ".\n";
+        datafile << "\t\t" << "<Unknown Type = "<< data->type << ">\n";
+    }
+
+    datafile << "=== End Entry ===\n\n";
     datafile.close();
 }
