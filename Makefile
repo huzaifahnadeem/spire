@@ -50,7 +50,7 @@ base_dir=.
 
 .PHONY: all conf_spire substation core spines prime scada_master benchmark conf_core conf_scada_master libs openplc pvb iec clean_prime clean_libs clean_spire clean_substation clean
 
-SUBDIRS=hmis proxy modbus dnp3 benchmark plcs
+SUBDIRS=hmis proxy modbus dnp3 benchmark plcs data_collector
 SS_SUBDIRS= relay_emulator proxy_iec61850 benchmarks_ss trip_master_v2 trip_master
 
 # Build full Spire system (note: need to build libs separately first)
