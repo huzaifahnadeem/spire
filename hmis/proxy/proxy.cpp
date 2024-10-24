@@ -26,11 +26,15 @@ extern "C" {
 
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 
+bool data_collector_isinsystem = false;
+bool shadow_isinsystem = false;
+
 int ipc_sock_hmi;
 // itrc_data proxy_data;
 itrc_data mainthread_to_itrcthread_data;
 itrc_data itr_client_data;
 int ipc_sock_main_to_itrcthread;
+int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 
 // for comm. with data collector:
@@ -38,7 +42,7 @@ int dc_spines_sock; // spines socket to be used for communicating with the data 
 struct sockaddr_in dc_addr; // data collector's address (contains ip addr and port)
 
 void usage_check(int ac, char **av);
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port);
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port);
 void setup_ipc_for_hmi();
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port);
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port);
@@ -46,14 +50,17 @@ void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
 void send_to_data_collector(char msg); // TODO: adjust param to signed mess or something
+void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 
 int main(int ac, char **av){
-    std::string spinesd_ip_addr; // for spines daemon
+    std::string spinesd_ip_addr; // for spines daemon (main system)
     int spinesd_port;
     std::string dc_ip_addr; // for data collector
     int dc_port;
+    std::string shadow_spinesd_ip_addr; // for spines daemon (shadow system)
+    int shadow_spinesd_port;
 
-    parse_args(ac, av, spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
+    parse_args(ac, av, spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port, spinesd_ip_addr, spinesd_port);
 
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
@@ -61,7 +68,12 @@ int main(int ac, char **av){
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
-    setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
+    if (shadow_isinsystem) {
+        itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
+    }
+    if (data_collector_isinsystem) {
+        setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
+    }
 
     pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client
     pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
@@ -75,29 +87,52 @@ int main(int ac, char **av){
 
 void usage_check(int ac, char **av) {
     // Usage check
-    if (ac != 3) {
+    if (ac == 2) { // running with just the main system
+        data_collector_isinsystem = false;
+        shadow_isinsystem = false;
+    }
+    else if (ac == 3) { // running with the main system and the data collector
+        data_collector_isinsystem = true;
+        shadow_isinsystem = false;
+    }
+    else if (ac == 4) { // running with the main system, the data collector, and the shadow system
+        data_collector_isinsystem = true;
+        shadow_isinsystem = true;
+    }
+    else {
         printf("Invalid args\n");
         printf("Usage: %s spinesAddr:spinesPort dataCollectorAddr:dataCollectorPort\n", av[0]);
         exit(EXIT_FAILURE);
     }
 }
 
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port) {
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port) {
     usage_check(ac, av);
 
     int colon_pos;
+    
     std::string spinesd_arg = av[1];
-    std::string dc_arg = av[2];
-
     colon_pos = -1;
     colon_pos = spinesd_arg.find(':');
     spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
     spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
 
-    colon_pos = -1;
-    colon_pos = dc_arg.find(':');
-    dc_ip_addr = dc_arg.substr(0, colon_pos);
-    dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
+    if (data_collector_isinsystem) {
+        std::string dc_arg = av[2];
+        colon_pos = -1;
+        colon_pos = dc_arg.find(':');
+        dc_ip_addr = dc_arg.substr(0, colon_pos);
+        dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
+    }
+
+    if (shadow_isinsystem) {
+        std::string shadow_spinesd_arg = av[3];
+        colon_pos = -1;
+        colon_pos = spinesd_arg.find(':');
+        shadow_spinesd_ip_addr = shadow_spinesd_arg.substr(0, colon_pos);
+        shadow_spinesd_port = std::stoi(shadow_spinesd_arg.substr(colon_pos + 1));
+
+    }
 }
 
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port) {
@@ -224,8 +259,10 @@ void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2) // called by ha
     IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock"); // TODO: change static string
     std::cout << "The message has been forwarded to the HMI\n";
 
-    // Forward to the Data Collector:
-    send_to_data_collector('!'); // TODO: change this to the signed message or whatever once that it implemented
+    if (data_collector_isinsystem) {
+        // Forward to the Data Collector:
+        send_to_data_collector('!'); // TODO: change this to the signed message or whatever once that it implemented
+    }
 }
 
 void *handler_msg_from_itrc(void *arg)
@@ -234,6 +271,9 @@ void *handler_msg_from_itrc(void *arg)
 
     E_init();
     E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    if (shadow_isinsystem){
+        E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    }
     E_handle_events();
 
     return NULL;
@@ -271,9 +311,16 @@ void *listen_on_hmi_sock(void *arg){
             perror("mess forwarded to itrc thread\n");
             printf("mess forwarded to itrc thread (printf)\n");
 
-            dc_i++;
-            dc_msg = char(dc_i);
-            send_to_data_collector(dc_msg);
+            if (data_collector_isinsystem) {
+                dc_i++;
+                dc_msg = char(dc_i);
+                send_to_data_collector(dc_msg);
+            }
+            if (shadow_isinsystem) {
+                IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
+                perror("mess forwarded to itrc thread\n");
+                printf("mess forwarded to itrc thread (printf)\n");
+            }
         }
     }
     return NULL;
@@ -284,4 +331,54 @@ void send_to_data_collector(char msg) { // TODO: adjust param to signed mess or 
     std::cout << "sending to data collector\n";
     ret = spines_sendto(dc_spines_sock, &msg, sizeof(char), 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
     std::cout << "sent to data collector with return code ret =" << ret << "\n";
+}
+
+void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) // TODO: its largely the same fn as itrc_init, combine the two
+{   
+    // char *ip;
+    struct timeval now;
+
+    My_Global_Configuration_Number = 0;
+    Init_SM_Replicas();
+
+    // NET Setup
+    gettimeofday(&now, NULL);
+    My_Incarnation = now.tv_sec;
+    Seq_Num = 1;
+    Type = HMI_TYPE;
+    // My_ID = PROXY_FOR_PNNL;
+    My_ID = 4; // PROXY_FOR_PNNL = 4. getting a 'PROXY_FOR_PNNL' was not declared in this scope error. TODO: figure out.
+    Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
+    My_IP = getIP();
+
+    // Setup IPC for HMI main thread
+    memset(&mainthread_to_itrcthread_data, 0, sizeof(itrc_data));
+    sprintf(mainthread_to_itrcthread_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    sprintf(mainthread_to_itrcthread_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
+    // sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
+    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
+    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
+    sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_main", My_ID);
+    sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_itrc", My_ID);
+    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
+    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main");
+    shadow_ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/shadow_hmiproxy_ipc_main4");
+
+    // Setup IPC for Worker thread (itrc client)
+    memset(&itr_client_data, 0, sizeof(itrc_data));
+    sprintf(itr_client_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    sprintf(itr_client_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(itr_client_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
+    // sprintf(itr_client_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
+    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
+    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
+    sprintf(itr_client_data.ipc_local, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_itrc", My_ID);
+    sprintf(itr_client_data.ipc_remote, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_main", My_ID);
+    // ip = strtok(av[1], ":");
+    // sprintf(itr_client_data.spines_ext_addr, "%s", ip);
+    sprintf(itr_client_data.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+    // ip = strtok(NULL, ":");
+    // sscanf(ip, "%d", &itr_client_data.spines_ext_port);
+    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
 }

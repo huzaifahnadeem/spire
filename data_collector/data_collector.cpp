@@ -29,9 +29,11 @@ extern "C" {
 #define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 #define SPINES_CONNECT_USEC 0
 
-void write_data(signed_message* data, std::string data_file_path);
+void write_data(std::string data_file_path, signed_message* data, std::string sender_ipaddr, int sender_port);
 void usage_check(int ac, char **av);
 void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path);
+// char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen);
+void sockaddr_to_str(struct sockaddr *sa, socklen_t *sa_len, std::string &ipaddr, int &port);
 
 int main(int ac, char **av){
     std::string spinesd_ip_addr; // for spines daemon
@@ -71,7 +73,12 @@ int main(int ac, char **av){
         if (num > 0) {
             /* Message from Spines */
             if (spines_sock >= 0 && FD_ISSET(spines_sock, &tmask)) {
-                ret = spines_recv(spines_sock, buff, MAX_LEN, 0);
+                // spines_recv does not give a way to find out the sender's address
+                // ret = spines_recv(spines_sock, buff, MAX_LEN, 0);
+                // so, instead we are using spines_recvfrom
+                struct sockaddr *sender_addr;
+                socklen_t *sender_addr_structlen;
+                ret = spines_recvfrom(spines_sock, buff, MAX_LEN, 0, sender_addr, sender_addr_structlen);
                 if (ret <= 0) {
                     std::cout << "data_collector: Error in spines_recvfrom with spines_sock>0 and : ret = " << ret << "dropping!\n";
                     spines_close(spines_sock);
@@ -81,7 +88,11 @@ int main(int ac, char **av){
                     continue;
                 }
                 std::cout << "data_collector: Received some data from spines daemon\n";
-                write_data((signed_message *)buff, data_file_path);
+
+                std::string sender_ipaddr;
+                int sender_port;
+                sockaddr_to_str(sender_addr, sender_addr_structlen, sender_ipaddr, sender_port);
+                write_data(data_file_path, (signed_message *)buff, sender_ipaddr, sender_port);
                 std::cout << "data_collector: Data has been written to disk\n";
             }
         }
@@ -133,7 +144,7 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     data_file_path = av[3];
 }
 
-void write_data(signed_message *data, std::string data_file_path) {
+void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
 
@@ -143,9 +154,10 @@ void write_data(signed_message *data, std::string data_file_path) {
     datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
     timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     datafile << "=== New Entry ===\n";
-    datafile << "Time: " << std::ctime(&timestamp) << "From: " << "<from>\n";
+    datafile << "Time: " << std::ctime(&timestamp); 
+    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";
+    
     datafile << "Data: \n";
-
     datafile << "\t" << data->sig << "\n";
     datafile << "\t" << data->mt_num << "\n";
     datafile << "\t" << data->mt_index << "\n";
@@ -234,4 +246,53 @@ void write_data(signed_message *data, std::string data_file_path) {
 
     datafile << "=== End Entry ===\n\n";
     datafile.close();
+}
+
+// // Convert a struct sockaddr address to a string, IPv4 and IPv6:
+// // from https://gist.github.com/jkomyno/45bee6e79451453c7bbdc22d033a282e
+// char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen)
+// {   
+//     std::cout << "here01\n";
+//     switch(sa->sa_family) {
+//         case AF_INET:
+//             std::cout << "here02\n";
+//             inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
+//                     s, maxlen);
+//             std::cout << "here03\n";
+//             break;
+
+//         case AF_INET6:
+//             std::cout << "here04\n";
+//             inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
+//                     s, maxlen);
+//             std::cout << "here05\n";
+//             break;
+
+//         default:
+//             std::cout << "here06\n";
+//             strncpy(s, "Unknown AF", maxlen);
+//             std::cout << "here07\n";
+//             return NULL;
+//     }
+
+//     return s;
+// }
+
+void sockaddr_to_str(struct sockaddr *sa, socklen_t *sa_len, std::string &ipaddr, int &port){
+    // char * tmp;
+    // std::cout << "here100\n";
+    // struct sockaddr_in *addr_in = (struct sockaddr_in *)sender_addr;
+    // std::string sender_ipaddr = get_ip_str(sender_addr, tmp, sizeof(sender_addr));
+    // std::cout << "here200\n";
+    // // std::string sender_ipaddr = inet_ntoa(addr_in->sin_addr);
+    // std::cout << "here300\n";
+    // // int sender_port = addr_in->sin_port
+    // int sender_port = 99;
+    // ;std::cout << "here400\n";
+
+
+    // sender_port = ((struct sockaddr_in*)sender_addr)->sin_port;
+
+    ipaddr = "?";
+    port = -1;
 }
