@@ -49,7 +49,7 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
-void send_to_data_collector(char msg); // TODO: adjust param to signed mess or something
+void send_to_data_collector(signed_message *msg, nbytes, int nbytes);
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 
 int main(int ac, char **av){
@@ -261,7 +261,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2) // called by ha
 
     if (data_collector_isinsystem) {
         // Forward to the Data Collector:
-        send_to_data_collector('!'); // TODO: change this to the signed message or whatever once that it implemented
+        send_to_data_collector(mess, nbytes);
     }
 }
 
@@ -287,12 +287,6 @@ void *listen_on_hmi_sock(void *arg){
     signed_message *mess;
     int nbytes;
 
-
-    // <tmp>
-    int dc_i = 64; // 'A' is 65
-    char dc_msg;
-    // </tmp>
-
     for (;;) {
         perror("waiting to recv smth on hmi sock (perror)");
         ret = IPC_Recv(ipc_sock_hmi, buf, MAX_LEN);
@@ -314,7 +308,7 @@ void *listen_on_hmi_sock(void *arg){
             if (data_collector_isinsystem) {
                 dc_i++;
                 dc_msg = char(dc_i);
-                send_to_data_collector(dc_msg);
+                send_to_data_collector(mess, nbytes);
             }
             if (shadow_isinsystem) {
                 IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
@@ -326,10 +320,10 @@ void *listen_on_hmi_sock(void *arg){
     return NULL;
 }
 
-void send_to_data_collector(char msg) { // TODO: adjust param to signed mess or something
+void send_to_data_collector(signed_message *msg, nbytes, int nbytes) { // TODO: adjust param to signed mess or something
     int ret;
     std::cout << "sending to data collector\n";
-    ret = spines_sendto(dc_spines_sock, &msg, sizeof(char), 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
     std::cout << "sent to data collector with return code ret =" << ret << "\n";
 }
 
