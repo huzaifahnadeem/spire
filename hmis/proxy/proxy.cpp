@@ -49,7 +49,7 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
-void send_to_data_collector(signed_message *msg, nbytes, int nbytes);
+void send_to_data_collector(signed_message *msg, int nbytes);
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 
 int main(int ac, char **av){
@@ -306,8 +306,6 @@ void *listen_on_hmi_sock(void *arg){
             printf("mess forwarded to itrc thread (printf)\n");
 
             if (data_collector_isinsystem) {
-                dc_i++;
-                dc_msg = char(dc_i);
                 send_to_data_collector(mess, nbytes);
             }
             if (shadow_isinsystem) {
@@ -320,7 +318,7 @@ void *listen_on_hmi_sock(void *arg){
     return NULL;
 }
 
-void send_to_data_collector(signed_message *msg, nbytes, int nbytes) { // TODO: adjust param to signed mess or something
+void send_to_data_collector(signed_message *msg, int nbytes) { // TODO: adjust param to signed mess or something
     int ret;
     std::cout << "sending to data collector\n";
     ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
