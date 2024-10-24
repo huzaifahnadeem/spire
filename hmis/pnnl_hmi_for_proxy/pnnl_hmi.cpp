@@ -115,8 +115,8 @@ void setup_for_proxy()
 
 void itrc_init(int ac, char **av) 
 {
-    char *ip;
-    struct timeval now;
+    // char *ip;
+    // struct timeval now;
     
     // Usage check
     if (ac < 2 || ac > 3) {

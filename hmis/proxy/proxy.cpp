@@ -41,7 +41,7 @@ unsigned int Seq_Num;
 int dc_spines_sock; // spines socket to be used for communicating with the data collector
 struct sockaddr_in dc_addr; // data collector's address (contains ip addr and port)
 
-void usage_check(int ac, char **av);
+void usage_check(int ac);
 void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port);
 void setup_ipc_for_hmi();
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port);
@@ -85,7 +85,7 @@ int main(int ac, char **av){
     return 0;
 }
 
-void usage_check(int ac, char **av) {
+void usage_check(int ac) {
     // Usage check
     if (ac == 2) { // running with just the main system
         data_collector_isinsystem = false;
@@ -101,13 +101,13 @@ void usage_check(int ac, char **av) {
     }
     else {
         printf("Invalid args\n");
-        printf("Usage: %s spinesAddr:spinesPort dataCollectorAddr:dataCollectorPort\n", av[0]);
+        printf("Usage: ./proxy spinesAddr:spinesPort dataCollectorAddr:dataCollectorPort\n");
         exit(EXIT_FAILURE);
     }
 }
 
 void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port) {
-    usage_check(ac, av);
+    usage_check(ac);
 
     int colon_pos;
     
@@ -162,17 +162,6 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
     dc_addr.sin_family = AF_INET;
     dc_addr.sin_port = htons(dc_port);
     dc_addr.sin_addr.s_addr = inet_addr(dc_ip_addr.c_str());
-    
-    // int i = 64; // 'A' is 65
-    // while (1) {
-    //     i++;
-    //     char msg;
-    //     msg = char(i);
-    //     std::cout << "sending\n";
-    //     ret = spines_sendto(dc_spines_sock, &msg, sizeof(char), 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
-    //     std::cout << "sent with return code ret =" << ret << "\n";
-    //     sleep(5);
-    // }
 }
 
 void setup_ipc_for_hmi()
@@ -318,7 +307,7 @@ void *listen_on_hmi_sock(void *arg){
     return NULL;
 }
 
-void send_to_data_collector(signed_message *msg, int nbytes) { // TODO: adjust param to signed mess or something
+void send_to_data_collector(signed_message *msg, int nbytes) {
     int ret;
     std::cout << "sending to data collector\n";
     ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
