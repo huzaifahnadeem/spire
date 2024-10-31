@@ -101,7 +101,7 @@ void usage_check(int ac) {
     }
     else {
         printf("Invalid args\n");
-        printf("Usage: ./proxy spinesAddr:spinesPort dataCollectorAddr:dataCollectorPort\n");
+        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort]\n");
         exit(EXIT_FAILURE);
     }
 }
