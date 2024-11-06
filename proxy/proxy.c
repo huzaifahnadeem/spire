@@ -389,6 +389,7 @@ int main(int argc, char *argv[])
                     // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
                     printf("sending main's message to data collector\n");
                     dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
+                    // if dc
                     printf("message sent to data collector with ret = ");
                     printf("%d\n", dc_ret);
                 }

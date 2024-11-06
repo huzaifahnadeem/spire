@@ -280,10 +280,10 @@ void *listen_on_hmi_sock(void *arg){
             if (data_collector_isinsystem) {
                 send_to_data_collector(mess, nbytes);
             }
-            // if (shadow_isinsystem) {
-            //     IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
-            //     std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
-            // }
+            if (shadow_isinsystem) {
+                IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
+                std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
+            }
         }
     }
     return NULL;
