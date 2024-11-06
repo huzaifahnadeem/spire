@@ -389,8 +389,12 @@ int main(int argc, char *argv[])
                     // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
                     printf("sending main's message to data collector\n");
                     dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                    // if dc
-                    printf("message sent to data collector with ret = ");
+                    if (dc_ret < 0) {
+                        printf("Failed to send message to data collector.  ret = ");
+                    }
+                    else {
+                        printf("message sent to data collector. ret = ");
+                    }
                     printf("%d\n", dc_ret);
                 }
 
@@ -439,7 +443,12 @@ int main(int argc, char *argv[])
                         // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
                         printf("sending shadow's message to data collector\n");
                         dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        printf("message sent to data collector with ret = ");
+                        if (dc_ret < 0) {
+                        printf("Failed to send message to data collector.  ret = ");
+                        }
+                        else {
+                            printf("message sent to data collector. ret = ");
+                        }
                         printf("%d\n", dc_ret);
                     }
                     // dont need to do anything else with it as this message is from the shadow (only main's messages are sent to rtus/plcs)
@@ -466,7 +475,12 @@ int main(int argc, char *argv[])
                         // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
                         printf("sending message to data collector\n");
                         dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        printf("message sent to data collector with ret = ");
+                        if (dc_ret < 0) {
+                            printf("Failed to send message to data collector.  ret = ");
+                        }
+                        else {
+                            printf("message sent to data collector. ret = ");
+                        }
                         printf("%d\n", dc_ret);
                     }
                 }
