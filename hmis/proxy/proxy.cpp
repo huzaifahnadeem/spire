@@ -193,13 +193,6 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port)
     sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
     sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
     
-    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
-    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
-    // sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)"/tmp/hmiproxy_ipc_main", My_ID);
-    // sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)"/tmp/hmiproxy_ipc_itrc", My_ID);
-    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main");
-    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main4");
-    
     ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
 
     // Setup IPC for Worker thread (itrc client)
@@ -208,15 +201,7 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port)
     sprintf(itr_client_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
     sprintf(itr_client_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
     sprintf(itr_client_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
-    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
-    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
-    // sprintf(itr_client_data.ipc_local, "%s%d", (char *)"/tmp/hmiproxy_ipc_itrc", My_ID);
-    // sprintf(itr_client_data.ipc_remote, "%s%d", (char *)"/tmp/hmiproxy_ipc_main", My_ID);
-    // ip = strtok(av[1], ":");
-    // sprintf(itr_client_data.spines_ext_addr, "%s", ip);
     sprintf(itr_client_data.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    // ip = strtok(NULL, ":");
-    // sscanf(ip, "%d", &itr_client_data.spines_ext_port);
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
 }
 
