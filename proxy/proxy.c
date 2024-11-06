@@ -279,10 +279,8 @@ int main(int argc, char *argv[])
     sprintf(itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
     sprintf(itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC, My_ID);
     sprintf(itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN, My_ID);
-    // ip_ptr = strtok(argv[2], ":");
     ip_ptr = spinesd_ip_addr;
     sprintf(itrc_thread.spines_ext_addr, "%s", ip_ptr);
-    // ip_ptr = strtok(NULL, ":");
     sprintf(ip_ptr, "%d", spinesd_port); // essentially equal to ip_ptr = to_char_ptr(spinesd_port);
     sscanf(ip_ptr, "%d", &itrc_thread.spines_ext_port);
 

@@ -81,7 +81,6 @@ extern "C" {
 
 unsigned int Seq_Num;
 int ipc_sock;
-//itrc_data itrc_in;//, itrc_out;
 struct timeval min_wait;
 data_model the_model;
 int Script_Running;
@@ -92,9 +91,6 @@ int Script_History_Seq;
 int Script_Breaker_Index;
 int Script_Breaker_Val;
 sp_time Next_Button, Button_Pressed_Duration;
-// itrc_data hmi_proxy_conn_data;
-// int ipc_sock_proxy;
-// extern int ipc_sock_proxy;
 
 extern int32u My_Global_Configuration_Number;
 
@@ -102,16 +98,8 @@ extern void modelInit();
 
 void setup_for_proxy()
 {   
-    // My_ID = PNNL_W_PROXY;
-    // memset(&hmi_proxy_conn_data, 0, sizeof(itrc_data));
-    // sprintf(hmi_proxy_conn_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    // sprintf(hmi_proxy_conn_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    // sprintf(hmi_proxy_conn_data.ipc_local, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
-    // sprintf(hmi_proxy_conn_data.ipc_remote, "%s%d", (char *)HMI_IPC_HMIPROXY, My_ID);
-    
-    // ipc_sock_proxy = IPC_DGram_Sock(hmi_proxy_conn_data.ipc_remote);
-    // ipc_sock_proxy = IPC_DGram_Sock("/tmp/hmi-to-proxy-ipc-sock");
-    ipc_sock_proxy = IPC_DGram_Sock(HMI_IPC_HMIPROXY);
+    ipc_sock_to_proxy = IPC_DGram_SendOnly_Sock(); // for HMI to HMIproxy communication
+    ipc_sock_from_proxy = IPC_DGram_Sock(HMIPROXY_IPC_HMI); // for HMIproxy to HMI communication
 }
 
 void itrc_init(int ac, char **av) 
@@ -165,7 +153,7 @@ void *master_connection(void *arg)
 
     E_init();
     
-    E_attach_fd(ipc_sock_proxy, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY); // Read_From_Master called when there is a message to be received from the proxy
+    E_attach_fd(ipc_sock_from_proxy, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY); // Read_From_Master called when there is a message to be received from the proxy
     E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
 
     E_handle_events();

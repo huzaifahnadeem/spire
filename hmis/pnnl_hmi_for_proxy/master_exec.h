@@ -126,7 +126,8 @@ typedef struct {
 }
 DATA;
 
-extern int ipc_sock_proxy;
+extern int ipc_sock_to_proxy;
+extern int ipc_sock_from_proxy;
 
 void Init_Master(DATA *);
 void Read_From_Master(int s, int dummy1, void *dummy2);

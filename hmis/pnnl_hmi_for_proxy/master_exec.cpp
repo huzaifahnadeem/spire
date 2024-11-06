@@ -63,7 +63,8 @@ extern "C" {
     #include "openssl_rsa.h"
 }
 
-int ipc_sock_proxy;
+int ipc_sock_to_proxy;
+int ipc_sock_from_proxy;
 
 void Process_Message(signed_message *);
 void Clear_All_Buttons();
@@ -75,7 +76,7 @@ void forward_to_proxy(signed_message *mess) {
     std::cout << "Forwarding message to proxy.\n";
     int nbytes, ret;
     nbytes = sizeof(signed_message) + mess->len;
-    ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, HMI_IPC_HMIPROXY);
+    ret = IPC_Send(ipc_sock_to_proxy, (void *)mess, nbytes, HMI_IPC_HMIPROXY);
     if (ret < 0) {
         std::cout << "IPC_Send: error with ret = "<< ret << "\n";
     }
@@ -199,7 +200,6 @@ void Execute_Script(int s, int dummy1, void *dummy2)
 
     printf("Script_Button_Pushed = %d\n", Script_Button_Pushed);
 
-    // forward_to_proxy(ipc_sock_proxy);
     switch(Script_Button_Pushed) {
 
         case RESTART_SCRIPT:

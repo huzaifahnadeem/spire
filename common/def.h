@@ -192,6 +192,7 @@
 #define HMI_IPC_MAIN "/tmp/hmi_ipc_main"
 #define HMI_IPC_ITRC "/tmp/hmi_ipc_itrc"
 #define HMI_IPC_HMIPROXY "/tmp/hmi_ipc_hmiproxy"
+#define HMIPROXY_IPC_HMI "/tmp/hmiproxy_ipc_hmi"
 #define HMIPROXY_IPC_MAIN "/tmp/hmiproxy_ipc_main"
 #define HMIPROXY_IPC_ITRC "/tmp/hmiproxy_ipc_itrc"
 #define RTU_IPC_MAIN "/tmp/rtu_ipc_main"
