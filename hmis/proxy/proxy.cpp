@@ -30,7 +30,7 @@ bool data_collector_isinsystem = false;
 bool shadow_isinsystem = false;
 
 int ipc_sock_hmi;
-// itrc_data proxy_data;
+// itrc_data hmi_proxy_conn_data;
 itrc_data mainthread_to_itrcthread_data;
 itrc_data itr_client_data;
 int ipc_sock_main_to_itrcthread;
@@ -168,15 +168,16 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 
 void setup_ipc_for_hmi()
 {   
-    // // My_ID = PNNL;
-    // // memset(&proxy_data, 0, sizeof(itrc_data));
-    // // sprintf(proxy_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    // // sprintf(proxy_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    // // sprintf(proxy_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_HMI, My_ID);
-    // // sprintf(proxy_data.ipc_remote, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
+    // My_ID = PNNL_W_PROXY;
+    // memset(&hmi_proxy_conn_data, 0, sizeof(itrc_data));
+    // sprintf(hmi_proxy_conn_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
+    // sprintf(hmi_proxy_conn_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
+    // sprintf(hmi_proxy_conn_data.ipc_local, "%s%d", (char *)HMI_IPC_HMIPROXY, My_ID);
+    // sprintf(hmi_proxy_conn_data.ipc_remote, "%s%d", (char *)HMI_IPC_MAIN, My_ID);
     
-    // // ipc_sock_hmi = IPC_DGram_Sock(proxy_data.ipc_local);
-    ipc_sock_hmi = IPC_DGram_Sock("/tmp/hmi-to-proxy-ipc-sock");
+    // ipc_sock_hmi = IPC_DGram_Sock(hmi_proxy_conn_data.ipc_local);
+    // ipc_sock_hmi = IPC_DGram_Sock("/tmp/hmi-to-proxy-ipc-sock");
+    ipc_sock_hmi = IPC_DGram_Sock(HMI_IPC_HMIPROXY);
 }
 
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port) 
@@ -251,7 +252,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
     nbytes = sizeof(signed_message) + mess->len;
     // Forward to HMI (only forward messages that are coming from the main system (shadow's messages are only fw to data collector, thats it))
     if (main_or_shadow == 0) {
-        IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock"); // TODO: change static string
+        IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, HMI_IPC_HMIPROXY); // TODO: change static string
         std::cout << "The message has been forwarded to the HMI\n";
     }
 
@@ -284,30 +285,26 @@ void *listen_on_hmi_sock(void *arg){
     int nbytes;
 
     for (;;) {
-        perror("waiting to recv smth on hmi sock (perror)");
+        std::cout << "Waiting to receive something on the HMI socket\n";
         ret = IPC_Recv(ipc_sock_hmi, buf, MAX_LEN);
         if (ret < 0) {
             printf("HMI-proxy: IPC_Rev failed\n");
         }
         else {
-            perror("received something (perror)\n");
-            printf("received something (printf)\n");
-            // perror(buf);
+            std::cout << "Received a message from the HMI\n";
             mess = (signed_message *)buf;
             nbytes = sizeof(signed_message) + mess->len;
             // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
             // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc");
             IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc4");
-            perror("mess forwarded to itrc thread\n");
-            printf("mess forwarded to itrc thread (printf)\n");
+            std::cout << "The message has been forwarded to the itrc thread\n";
 
             if (data_collector_isinsystem) {
                 send_to_data_collector(mess, nbytes);
             }
             if (shadow_isinsystem) {
                 IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
-                perror("mess forwarded to itrc thread\n");
-                printf("mess forwarded to itrc thread (printf)\n");
+                std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
             }
         }
     }
@@ -316,9 +313,9 @@ void *listen_on_hmi_sock(void *arg){
 
 void send_to_data_collector(signed_message *msg, int nbytes) {
     int ret;
-    std::cout << "sending to data collector\n";
+    std::cout << "Sending to data collector\n";
     ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
-    std::cout << "sent to data collector with return code ret =" << ret << "\n";
+    std::cout << "Sent to data collector with return code ret =" << ret << "\n";
 }
 
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) // TODO: its largely the same fn as itrc_init, combine the two

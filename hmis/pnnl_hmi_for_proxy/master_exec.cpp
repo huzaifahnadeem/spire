@@ -71,42 +71,16 @@ void Push_Buttons(int btype);
 void Button_Event(int dummy1, void *dummy2);
 void Process_Config_Msg(signed_message * conf_mess,int mess_size);
 
-// this one is for receving a message that is just a single char
-// // void forward_to_proxy(signed_message *mess, int ipc_sock_proxy, itrc_data *proxy_data)
-// // void forward_to_proxy(int ipc_sock_proxy)
-// // void forward_to_proxy(signed_message *mess, int ipc_sock_proxy)
-// void forward_to_proxy(int ipc_sock_proxy)
-// {   
-//     int nbytes, ret;
-//     // nbytes = sizeof(signed_message) + mess->len;
-//     // // ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, proxy_data.ipc_remote);
-//     // const char* mess = "Empty message";
-//     char mess = 'x';
-//     char* mess_ptr = &mess;
-//     // nbytes = sizeof(mess);
-//     nbytes = sizeof(mess_ptr);
-    
-//     // ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, "/tmp/huzaifah");
-//     ret = IPC_Send(ipc_sock_proxy, (void *)mess_ptr, nbytes, "/tmp/huzaifah");
-//     if (ret < 0) {
-//         perror("IPC_Send: error\n");
-//     }
-//     else {
-//         perror("Sent something");
-//     }
-// }
-
-// void forward_to_proxy(int ipc_sock_proxy, signed_message *mess) {
 void forward_to_proxy(signed_message *mess) {
-    printf("----------------------in forward_to_proxy()\n");
+    std::cout << "Forwarding message to proxy.\n";
     int nbytes, ret;
     nbytes = sizeof(signed_message) + mess->len;
-    ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock");
+    ret = IPC_Send(ipc_sock_proxy, (void *)mess, nbytes, HMI_IPC_HMIPROXY);
     if (ret < 0) {
-        perror("IPC_Send: error\n");
+        std::cout << "IPC_Send: error with ret = "<< ret << "\n";
     }
     else {
-        perror("Sent something");
+        std::cout << "Message sent. ret =" << ret << "\n";
     }
     // not freeing mess here. that is assumed to be done after this function is called.
 }

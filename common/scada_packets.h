@@ -128,8 +128,8 @@ enum crob_type{LATCH_ON, LATCH_OFF, PULSE_ON, PULSE_OFF};
 #define JHU 1
 #define PNNL 2
 #define EMS 3
-#define PROXY_FOR_PNNL 4
-// #define PNNL_W_PROXY 5
+// #define PNNL_W_PROXY 4
+// #define PROXY_FOR_PNNL 5
 
 /*
  * Type of equipment inside of substations
