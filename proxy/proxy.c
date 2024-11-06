@@ -227,8 +227,10 @@ int main(int argc, char *argv[])
         printf("PROXY: Starting program at path: %s\n", path);
         pid = fork();
         //child -- run program on path
+        char* args_for_modbus[4] = {argv[0], argv[1], argv[2], argv[3]};
         if(pid == 0) {
-            execv(path, &argv[0]);
+            // execv(path, &argv[0]);
+            execv(path, &args_for_modbus[0]);
         } 
         else if(pid < 0) {
             perror("Fork returned below 0 pid");
@@ -309,10 +311,9 @@ int main(int argc, char *argv[])
         // ip_ptr = strtok(NULL, ":");
         sprintf(ip_ptr, "%d", shadow_spinesd_port); // essentially equal to ip_ptr = to_char_ptr(shadow_spinesd_port);
         sscanf(ip_ptr, "%d", &shadow_itrc_thread.spines_ext_port);
+        
     }
 
-    printf("PROXY: Setting up ITRC Client thread (For Shadow)\n");
-    pthread_create(&shadow_itrc_thread_tid, NULL, &ITRC_Client, (void *)&shadow_itrc_thread);
     ///////////////////////////
 
 
@@ -329,13 +330,21 @@ int main(int argc, char *argv[])
         }
     FD_SET(ipc_sock, &mask);
 
+
+
+    if (shadow_isinsystem == 1) {
+        printf("PROXY: Setting up ITRC Client thread (For Shadow)\n");
+        pthread_create(&shadow_itrc_thread_tid, NULL, &ITRC_Client, (void *)&shadow_itrc_thread);
+        FD_SET(shadow_ipc_sock, &mask); // shadow
+    }
+    // if (data_collector_isinsystem == 1) { // init these only if there is a data_collector in the system
     // set up for data collector connection (TODO: move this somewhere up, it is here only to make it more obvious while im working on it)
     int dc_proto, dc_spines_sock, dc_ret;
     
     struct timeval dc_spines_timeout, *dc_t;
     dc_proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
     /* Setup the spines timeout frequency - if disconnected, will try to reconnect
-     *  this often */
+    *  this often */
     // #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
     // #define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
     dc_spines_timeout.tv_sec  = 2; // DATA_COLLECTOR_SPINES_CONNECT_SEC;
@@ -352,10 +361,12 @@ int main(int argc, char *argv[])
         printf("setting up data collector conn.: Connected to Spines\n");
         dc_t = NULL;
     }
+
     struct sockaddr_in dc_dest;
     dc_dest.sin_family = AF_INET;
     dc_dest.sin_port = htons(dc_spinesd_port);
     dc_dest.sin_addr.s_addr = inet_addr(dc_spinesd_ip_addr);
+    // }
 
     while (1) {
         tmask = mask;
@@ -376,11 +387,13 @@ int main(int argc, char *argv[])
                 mess = (signed_message *)buff;
                 nBytes = sizeof(signed_message) + (int)mess->len;
                 
-                // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
-                printf("sending message to data collector\n");
-                dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                printf("message sent to data collector with ret = ");
-                printf("%d\n", dc_ret);
+                if (data_collector_isinsystem == 1) {
+                    // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
+                    printf("sending main's message to data collector\n");
+                    dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
+                    printf("message sent to data collector with ret = ");
+                    printf("%d\n", dc_ret);
+                }
 
                 if(mess->type ==  PRIME_OOB_CONFIG_MSG){
                     printf("PROXY: processing OOB CONFIG MESSAGE\n");
@@ -408,6 +421,31 @@ int main(int argc, char *argv[])
                     continue;
                 }
             }
+            
+            if (shadow_isinsystem == 1) {
+                /* Message from ITRC (Shadow) */
+                if (FD_ISSET(shadow_ipc_sock, &tmask)) {
+                    int in_list;
+                    int channel;
+                    int rtu_dst;
+                    ret = IPC_Recv(shadow_ipc_sock, buff, MAX_LEN);
+                    if (ret <= 0) {
+                        printf("Error in IPC_Recv (for shadow): ret = %d, dropping!\n", ret);
+                        continue;
+                    }
+                    mess = (signed_message *)buff;
+                    nBytes = sizeof(signed_message) + (int)mess->len;
+                    
+                    if (data_collector_isinsystem == 1) {
+                        // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
+                        printf("sending shadow's message to data collector\n");
+                        dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
+                        printf("message sent to data collector with ret = ");
+                        printf("%d\n", dc_ret);
+                    }
+                    // dont need to do anything else with it as this message is from the shadow (only main's messages are sent to rtus/plcs)
+                }
+            }
             for(i = 0; i < NUM_PROTOCOLS; i++) {
                 if(ipc_used[i] != 1) 
                     continue;
@@ -425,11 +463,13 @@ int main(int argc, char *argv[])
                         printf("PROXY: error sending to SM\n");
                     }
 
-                    // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
-                    printf("sending message to data collector\n");
-                    dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                    printf("message sent to data collector with ret = ");
-                    printf("%d\n", dc_ret);
+                    if (data_collector_isinsystem == 1) {
+                        // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
+                        printf("sending message to data collector\n");
+                        dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
+                        printf("message sent to data collector with ret = ");
+                        printf("%d\n", dc_ret);
+                    }
                 }
             }
         }
@@ -443,11 +483,11 @@ int usage_check(int ac) {
         data_collector_isinsystem = 0; // == false
         shadow_isinsystem = 0;  // == false
     }
-    if (ac == 5) { // running with the main system and the data collector
+    else if (ac == 5) { // running with the main system and the data collector
         data_collector_isinsystem = 1; // == true
         shadow_isinsystem = 0;  // == false
     }
-    if (ac == 6) { // running with the main system, the data collector, and the shadow
+    else if (ac == 6) { // running with the main system, the data collector, and the shadow
         data_collector_isinsystem = 1; // == true
         shadow_isinsystem = 1;  // == true
     }

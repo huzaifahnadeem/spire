@@ -65,6 +65,7 @@ int main(int ac, char **av){
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
+    pthread_t handle_msg_from_itrc_thread_shadow;
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
@@ -75,7 +76,8 @@ int main(int ac, char **av){
         setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
     }
 
-    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client
+    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
+
     pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
     pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
@@ -227,26 +229,31 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port)
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
 }
 
-void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2) // called by handler_msg_from_itrc
+void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // called by handler_msg_from_itrc
 {   
     int ret; 
     int nbytes;
     char buf[MAX_LEN];
     signed_message *mess;
 
-    UNUSED(dummy1);
+    // UNUSED(dummy1);
     UNUSED(dummy2);
 
+    std::cout << "recv_then_fw_to_hmi_and_dc():\n";
+
     // Receive from ITRC Client"
-    std::cout << "There is a message from the ITRC Client\n";
+    if (main_or_shadow == 0) std::cout << "There is a message from the ITRC Client (main) \n";      // (main_or_shadow == 0) => main
+    if (main_or_shadow == 1) std::cout << "There is a message from the ITRC Client (shadow) \n";    // (main_or_shadow == 1) => shadow
     ret = IPC_Recv(s, buf, MAX_LEN);
     if (ret < 0) printf("recv_msg_from_itrc(): IPC_Rev failed\n");
     
-    // Forward to HMI
     mess = (signed_message *)buf;
     nbytes = sizeof(signed_message) + mess->len;
-    IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock"); // TODO: change static string
-    std::cout << "The message has been forwarded to the HMI\n";
+    // Forward to HMI (only forward messages that are coming from the main system (shadow's messages are only fw to data collector, thats it))
+    if (main_or_shadow == 0) {
+        IPC_Send(ipc_sock_hmi, (void *)mess, nbytes, "/tmp/hmi-to-proxy-ipc-sock"); // TODO: change static string
+        std::cout << "The message has been forwarded to the HMI\n";
+    }
 
     if (data_collector_isinsystem) {
         // Forward to the Data Collector:
@@ -261,7 +268,7 @@ void *handler_msg_from_itrc(void *arg)
     E_init();
     E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
     if (shadow_isinsystem){
-        E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+        E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
     }
     E_handle_events();
 
