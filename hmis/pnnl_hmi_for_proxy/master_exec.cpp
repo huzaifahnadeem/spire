@@ -81,7 +81,7 @@ void forward_to_proxy(signed_message *mess) {
         std::cout << "IPC_Send: error with ret = "<< ret << "\n";
     }
     else {
-        std::cout << "Message sent. ret =" << ret << "\n";
+        std::cout << "Message sent. ret = " << ret << "\n";
     }
     // not freeing mess here. that is assumed to be done after this function is called.
 }

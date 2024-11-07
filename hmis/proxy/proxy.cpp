@@ -64,7 +64,7 @@ int main(int ac, char **av){
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
-    pthread_t handle_msg_from_itrc_thread_shadow;
+    // pthread_t handle_msg_from_itrc_thread_shadow;
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
@@ -82,6 +82,7 @@ int main(int ac, char **av){
     
     pthread_join(hmi_listen_thread, NULL);
     pthread_join(itrc_thread, NULL);
+    pthread_join(handle_msg_from_itrc_thread, NULL);
 
     return 0;
 }
@@ -238,15 +239,32 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
 }
 
 void *handler_msg_from_itrc(void *arg)
-{
+{   
     UNUSED(arg);
+    
+    std::cout << "initialized handler_msg_from_itrc() \n";
 
-    E_init();
-    E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
-    if (shadow_isinsystem){
-        E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // E_init();
+    // E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // if (shadow_isinsystem){
+    //     E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // }
+    // E_handle_events();
+
+    fd_set active_fd_set, read_fd_set;
+    int num;
+    // Init data structures for select()
+    FD_ZERO(&active_fd_set);
+    FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
+    while(1) {
+        read_fd_set = active_fd_set;
+        num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
+        if (num > 0) {
+            if(FD_ISSET(ipc_sock_main_to_itrcthread, &read_fd_set)) {
+                recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
+            }
+        }
     }
-    E_handle_events();
 
     return NULL;
 }
