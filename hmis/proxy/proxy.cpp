@@ -228,7 +228,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
     nbytes = sizeof(signed_message) + mess->len;
     // Forward to HMI (only forward messages that are coming from the main system (shadow's messages are only fw to data collector, thats it))
     if (main_or_shadow == 0) {
-        IPC_Send(ipc_sock_to_hmi, (void *)mess, nbytes, HMI_IPC_HMIPROXY);
+        IPC_Send(ipc_sock_to_hmi, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
         std::cout << "The message has been forwarded to the HMI\n";
     }
 

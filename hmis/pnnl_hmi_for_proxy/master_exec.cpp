@@ -118,6 +118,7 @@ void Process_Config_Msg(signed_message * conf_mess,int mess_size){
 
 void Read_From_Master(int s, int dummy1, void *dummy2) 
 {   
+    std::cout << "There is message from the HMIproxy\n";
     int ret; 
     char buf[MAX_LEN];
     signed_message *cmess;
@@ -126,7 +127,12 @@ void Read_From_Master(int s, int dummy1, void *dummy2)
     UNUSED(dummy2);
 
     ret = IPC_Recv(s, buf, MAX_LEN);
-    if (ret < 0) printf("Read_From_Master: IPC_Rev failed\n");
+    if (ret < 0) { 
+        printf("Read_From_Master: IPC_Rev failed\n");
+    }
+    else {
+        std::cout << "Message was received\n";
+    }
     cmess=(signed_message *)buf; 
     if(cmess->type ==  PRIME_OOB_CONFIG_MSG){
         Process_Config_Msg((signed_message *)buf,ret);
