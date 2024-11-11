@@ -197,7 +197,7 @@
 #define RTU_IPC_ITRC_SHADOW "/tmp/shadow_rtu_ipc_itrc"
 #define BM_IPC_MAIN  "/tmp/bm_ipc_main"
 #define BM_IPC_ITRC  "/tmp/bm_ipc_itrc"
-#define CONFIG_AGENT "/tmp/config_agent_to_sm""
+#define CONFIG_AGENT "/tmp/config_agent_to_sm"
 
 /* Key directories */
 #define SM_PRIME_KEYS "../prime/bin/keys"
