@@ -32,6 +32,8 @@ bool shadow_isinsystem = false;
 int ipc_sock_to_hmi, ipc_sock_from_hmi;
 itrc_data mainthread_to_itrcthread_data;
 itrc_data itr_client_data;
+itrc_data shadow_mainthread_to_itrcthread_data;
+itrc_data shadow_itr_client_data;
 int ipc_sock_main_to_itrcthread;
 int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
@@ -64,7 +66,6 @@ int main(int ac, char **av){
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
-    // pthread_t handle_msg_from_itrc_thread_shadow;
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
@@ -170,40 +171,6 @@ void setup_ipc_for_hmi()
 {   
     ipc_sock_from_hmi = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMIproxy communication
     ipc_sock_to_hmi = IPC_DGram_SendOnly_Sock(); // for HMIproxy to HMI communication
-}
-
-void itrc_init(std::string spinesd_ip_addr, int spinesd_port) 
-{   
-    struct timeval now;
-    My_Global_Configuration_Number = 0;
-    Init_SM_Replicas();
-
-    // NET Setup
-    gettimeofday(&now, NULL);
-    My_Incarnation = now.tv_sec;
-    Seq_Num = 1;
-    Type = HMI_TYPE;
-    My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-    Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
-    My_IP = getIP();
-
-    // Setup IPC for HMI main thread
-    memset(&mainthread_to_itrcthread_data, 0, sizeof(itrc_data));
-    sprintf(mainthread_to_itrcthread_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(mainthread_to_itrcthread_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
-    sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
-    
-    ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
-
-    // Setup IPC for Worker thread (itrc client)
-    memset(&itr_client_data, 0, sizeof(itrc_data));
-    sprintf(itr_client_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(itr_client_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    sprintf(itr_client_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
-    sprintf(itr_client_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
-    sprintf(itr_client_data.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
 }
 
 void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // called by handler_msg_from_itrc
@@ -314,11 +281,9 @@ void send_to_data_collector(signed_message *msg, int nbytes) {
     std::cout << "Sent to data collector with return code ret =" << ret << "\n";
 }
 
-void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) // TODO: its largely the same fn as itrc_init, combine the two
+void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, itrc_data &itrc_data_main, itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
 {   
-    // char *ip;
     struct timeval now;
-
     My_Global_Configuration_Number = 0;
     Init_SM_Replicas();
 
@@ -327,39 +292,34 @@ void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) // TODO: it
     My_Incarnation = now.tv_sec;
     Seq_Num = 1;
     Type = HMI_TYPE;
-    // My_ID = PROXY_FOR_PNNL;
-    My_ID = 4; // PROXY_FOR_PNNL = 4. getting a 'PROXY_FOR_PNNL' was not declared in this scope error. TODO: figure out.
+    My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
     Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
     My_IP = getIP();
 
     // Setup IPC for HMI main thread
-    memset(&mainthread_to_itrcthread_data, 0, sizeof(itrc_data));
-    sprintf(mainthread_to_itrcthread_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(mainthread_to_itrcthread_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    // sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
-    // sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
-    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
-    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
-    sprintf(mainthread_to_itrcthread_data.ipc_local, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_main", My_ID);
-    sprintf(mainthread_to_itrcthread_data.ipc_remote, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_itrc", My_ID);
-    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock(mainthread_to_itrcthread_data.ipc_local);
-    // ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/hmiproxy_ipc_main");
-    shadow_ipc_sock_main_to_itrcthread = IPC_DGram_Sock("/tmp/shadow_hmiproxy_ipc_main4");
+    memset(&itrc_data_main, 0, sizeof(itrc_data));
+    sprintf(itrc_data_main.prime_keys_dir, "%s", (char *)hmi_prime_keys_dir);
+    sprintf(itrc_data_main.sm_keys_dir, "%s", (char *)hmi_sm_keys_dir);
+    sprintf(itrc_data_main.ipc_local, "%s%d", (char *)hmiproxy_ipc_main_procfile, My_ID);
+    sprintf(itrc_data_main.ipc_remote, "%s%d", (char *)hmiproxy_ipc_itrc_procfile, My_ID);
+    
+    sock_main_to_itrc_thread = IPC_DGram_Sock(itrc_data_main.ipc_local);
 
     // Setup IPC for Worker thread (itrc client)
-    memset(&itr_client_data, 0, sizeof(itrc_data));
-    sprintf(itr_client_data.prime_keys_dir, "%s", (char *)HMI_PRIME_KEYS);
-    sprintf(itr_client_data.sm_keys_dir, "%s", (char *)HMI_SM_KEYS);
-    // sprintf(itr_client_data.ipc_local, "%s%d", (char *)HMIPROXY_IPC_ITRC, My_ID);
-    // sprintf(itr_client_data.ipc_remote, "%s%d", (char *)HMIPROXY_IPC_MAIN, My_ID);
-    // getting a 'HMIPROXY_IPC_ITRC' was not declared in this scope error. TODO: figure out.
-    // getting a 'HMIPROXY_IPC_MAIN' was not declared in this scope error. TODO: figure out.
-    sprintf(itr_client_data.ipc_local, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_itrc", My_ID);
-    sprintf(itr_client_data.ipc_remote, "%s%d", (char *)"/tmp/shadow_hmiproxy_ipc_main", My_ID);
-    // ip = strtok(av[1], ":");
-    // sprintf(itr_client_data.spines_ext_addr, "%s", ip);
-    sprintf(itr_client_data.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    // ip = strtok(NULL, ":");
-    // sscanf(ip, "%d", &itr_client_data.spines_ext_port);
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itr_client_data.spines_ext_port);
+    memset(&itrc_data_itrcclient, 0, sizeof(itrc_data));
+    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", (char *)hmi_prime_keys_dir);
+    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", (char *)hmi_sm_keys_dir);
+    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", (char *)hmiproxy_ipc_itrc_procfile, My_ID);
+    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", (char *)hmiproxy_ipc_main_procfile, My_ID);
+    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+}
+
+void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
+    _itrc_init(spinesd_ip_addr, spinesd_port, mainthread_to_itrcthread_data, itr_client_data, ipc_sock_main_to_itrcthread, HMI_PRIME_KEYS, HMI_SM_KEYS, HMIPROXY_IPC_MAIN, HMIPROXY_IPC_ITRC);
+}
+
+void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) {
+    // TODO: for shadow, if it runs in a diff config the keys dir might be different
+    _itrc_init(spinesd_ip_addr, spinesd_port, shadow_mainthread_to_itrcthread_data, shadow_itr_client_data, shadow_ipc_sock_main_to_itrcthread, HMI_PRIME_KEYS, HMI_SM_KEYS, HMIPROXY_IPC_MAIN_SHADOW, HMIPROXY_IPC_ITRC_SHADOW);
 }

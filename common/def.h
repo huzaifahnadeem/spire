@@ -195,6 +195,8 @@
 #define HMIPROXY_IPC_HMI "/tmp/hmiproxy_ipc_hmi"
 #define HMIPROXY_IPC_MAIN "/tmp/hmiproxy_ipc_main"
 #define HMIPROXY_IPC_ITRC "/tmp/hmiproxy_ipc_itrc"
+#define HMIPROXY_IPC_MAIN_SHADOW "/tmp/shadow_hmiproxy_ipc_main"
+#define HMIPROXY_IPC_ITRC_SHADOW "/tmp/shadow_hmiproxy_ipc_itrc"
 #define RTU_IPC_MAIN "/tmp/rtu_ipc_main"
 #define RTU_IPC_ITRC "/tmp/rtu_ipc_itrc"
 #define RTU_IPC_MAIN_SHADOW "/tmp/shadow_rtu_ipc_main"
