@@ -37,6 +37,7 @@ itrc_data shadow_itr_client_data;
 int ipc_sock_main_to_itrcthread;
 int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
+std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
 
 // for comm. with data collector:
 int dc_spines_sock; // spines socket to be used for communicating with the data collector
@@ -98,13 +99,13 @@ void usage_check(int ac) {
         data_collector_isinsystem = true;
         shadow_isinsystem = false;
     }
-    else if (ac == 4) { // running with the main system, the data collector, and the shadow system
+    else if (ac == 4 || ac == 5) { // running with the main system, the data collector, and the shadow system (if running with shadow, the user can optionally provide the directory where the the shadow binaries of spire are. That is useful to find keys if the shadow is running in a different configuration and/or using different keys)
         data_collector_isinsystem = true;
         shadow_isinsystem = true;
     }
     else {
         printf("Invalid args\n");
-        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort]\n");
+        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort] [shadowSpireDirectory]\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -134,7 +135,9 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
         colon_pos = spinesd_arg.find(':');
         shadow_spinesd_ip_addr = shadow_spinesd_arg.substr(0, colon_pos);
         shadow_spinesd_port = std::stoi(shadow_spinesd_arg.substr(colon_pos + 1));
-
+        if (ac == 5) {
+            shadow_spire_dir = av[4];
+        }
     }
 }
 
@@ -316,10 +319,25 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, itrc_data &itrc_d
 }
 
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
-    _itrc_init(spinesd_ip_addr, spinesd_port, mainthread_to_itrcthread_data, itr_client_data, ipc_sock_main_to_itrcthread, HMI_PRIME_KEYS, HMI_SM_KEYS, HMIPROXY_IPC_MAIN, HMIPROXY_IPC_ITRC);
+    _itrc_init(spinesd_ip_addr, 
+                spinesd_port, 
+                mainthread_to_itrcthread_data, 
+                itr_client_data, 
+                ipc_sock_main_to_itrcthread, 
+                HMI_PRIME_KEYS, 
+                HMI_SM_KEYS, 
+                HMIPROXY_IPC_MAIN, 
+                HMIPROXY_IPC_ITRC );
 }
 
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) {
-    // TODO: for shadow, if it runs in a diff config the keys dir might be different
-    _itrc_init(spinesd_ip_addr, spinesd_port, shadow_mainthread_to_itrcthread_data, shadow_itr_client_data, shadow_ipc_sock_main_to_itrcthread, HMI_PRIME_KEYS, HMI_SM_KEYS, HMIPROXY_IPC_MAIN_SHADOW, HMIPROXY_IPC_ITRC_SHADOW);
+    _itrc_init(spinesd_ip_addr, 
+                spinesd_port, 
+                shadow_mainthread_to_itrcthread_data, 
+                shadow_itr_client_data, 
+                shadow_ipc_sock_main_to_itrcthread, 
+                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
+                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, 
+                HMIPROXY_IPC_MAIN_SHADOW, 
+                HMIPROXY_IPC_ITRC_SHADOW );
 }
