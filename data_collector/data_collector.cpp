@@ -304,18 +304,18 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
         datafile << "\t\t" << "->usec:\t\t"                 << msg_content->usec << "\n";
         datafile << "\t\t" << "->data (payload):\n";
         pnnl_fields * payload = (pnnl_fields *)msg_content->data; // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
-        datafile << "\t->padd1:"<< payload->padd1 << "\n";
-        datafile << "\t->point: [";
+        datafile << "\t\t\t->padd1:"<< payload->padd1 << "\n";
+        datafile << "\t\t\t->point: [";
         for (int i = 0; i < NUM_POINT; i++) {
             datafile << payload->point[i] << ((i < NUM_POINT-1) ? ", " : ""); // adding a comma to make it print nicer. dont print comma for the last element
         }
         datafile << "]\n";
-        datafile << "\t->breaker_read: [";
+        datafile << "\t\t\t->breaker_read: [";
         for (int i = 0; i < NUM_BREAKER; i++) {
             datafile << +payload->breaker_read[i] << ((i < NUM_BREAKER-1) ? ", " : ""); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
         }
         datafile << "]\n";
-        datafile << "\t->breaker_write: [";
+        datafile << "\t\t\t->breaker_write: [";
         for (int i = 0; i < NUM_BREAKER; i++) {
             datafile << +payload->breaker_write[i] << ((i < NUM_BREAKER-1) ? ", " : "");
         }
