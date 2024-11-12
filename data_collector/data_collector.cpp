@@ -29,7 +29,15 @@ extern "C" {
 #define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 #define SPINES_CONNECT_USEC 0
 
-void write_data(std::string data_file_path, signed_message* data, std::string sender_ipaddr, int sender_port);
+struct data_collector_packet {
+    int data_stream;
+    int nbytes_mess;
+    int nbytes_struct;
+    signed_message system_message;
+}; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
+
+// void write_data(std::string data_file_path, signed_message* data, std::string sender_ipaddr, int sender_port);
+void write_data(std::string data_file_path, struct data_collector_packet * data_packet, std::string sender_ipaddr, int sender_port);
 void usage_check(int ac, char **av);
 void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path);
 char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen);
@@ -92,7 +100,8 @@ int main(int ac, char **av){
                 std::string sender_ipaddr;
                 int sender_port;
                 sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
-                write_data(data_file_path, (signed_message *)buff, sender_ipaddr, sender_port);
+                // write_data(data_file_path, (signed_message *)buff, sender_ipaddr, sender_port);
+                write_data(data_file_path, (data_collector_packet *)buff, sender_ipaddr, sender_port);
                 std::cout << "data_collector: Data has been written to disk\n";
             }
         }
@@ -144,9 +153,11 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     data_file_path = av[3];
 }
 
-void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
+// void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
+void write_data(std::string data_file_path, struct data_collector_packet * data_packet, std::string sender_ipaddr, int sender_port) {
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
+    signed_message *data = &data_packet->system_message;
 
     std::time_t timestamp;
     std::ofstream datafile;
@@ -156,6 +167,7 @@ void write_data(std::string data_file_path, signed_message *data, std::string se
     datafile << "=== New Entry ===\n";
     datafile << "Time: " << std::ctime(&timestamp); 
     datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";
+    datafile << "Data Stream: " << data_packet->data_stream << "\n";
     
     std::string msg_type_str;
     switch (data->type) {
@@ -259,7 +271,11 @@ void write_data(std::string data_file_path, signed_message *data, std::string se
         datafile << "\t\t" << "->scen_type:\t\t"            << msg_content->scen_type << "\n";
         datafile << "\t\t" << "->sec:\t\t"                  << msg_content->sec << "\n";
         datafile << "\t\t" << "->usec:\t\t"                 << msg_content->usec << "\n";
-        datafile << "\t\t" << "->data:\t\t"                 << msg_content->data << "\n";
+        datafile << "\t\t" << "->data:\t\t"                 ;//<< msg_content->data << "\n";
+        for (int i = 0; i < RTU_DATA_PAYLOAD_LEN; i++) {
+            datafile << msg_content->data[i];
+        }
+        datafile << "\n";
     }
     else {
         std::cout << "Received a message of an unknown type. Type = " << data->type << ".\n";

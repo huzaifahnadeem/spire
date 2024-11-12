@@ -26,6 +26,13 @@ extern "C" {
 
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 
+struct data_collector_packet {
+    int data_stream;
+    int nbytes_mess;
+    int nbytes_struct;
+    signed_message system_message;
+}; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
+
 bool data_collector_isinsystem = false;
 bool shadow_isinsystem = false;
 
@@ -51,7 +58,7 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
-void send_to_data_collector(signed_message *msg, int nbytes);
+void send_to_data_collector(signed_message *msg, int nbytes, int stream);
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 
 int main(int ac, char **av){
@@ -204,7 +211,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
 
     if (data_collector_isinsystem) {
         // Forward to the Data Collector:
-        send_to_data_collector(mess, nbytes);
+        send_to_data_collector(mess, nbytes, main_or_shadow);
     }
 }
 
@@ -266,7 +273,7 @@ void *listen_on_hmi_sock(void *arg){
             std::cout << "The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
 
             if (data_collector_isinsystem) {
-                send_to_data_collector(mess, nbytes);
+                send_to_data_collector(mess, nbytes, 2);
             }
             if (shadow_isinsystem) {
                 IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
@@ -277,10 +284,16 @@ void *listen_on_hmi_sock(void *arg){
     return NULL;
 }
 
-void send_to_data_collector(signed_message *msg, int nbytes) {
+void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
     int ret;
     std::cout << "Sending to data collector\n";
-    ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    // ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    struct data_collector_packet data_packet;
+    data_packet.data_stream = stream;
+    data_packet.system_message = *msg;
+    data_packet.nbytes_mess = nbytes;
+    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
+    ret = spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret =" << ret << "\n";
 }
 
