@@ -73,6 +73,13 @@
 
 #define MAX_PATH 1000
 
+// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
+#define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
+#define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
+#define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
+#define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
+#define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
+#define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
@@ -395,7 +402,7 @@ int main(int argc, char *argv[])
                     // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
                     printf("sending main's message to data collector\n");
                     // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                    dc_ret = send_to_data_collector(mess, nBytes, 100);
+                    dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_MAIN_MSG);
                     if (dc_ret < 0) {
                         printf("Failed to send message to data collector.  ret = ");
                     }
@@ -450,7 +457,7 @@ int main(int argc, char *argv[])
                         // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
                         printf("sending shadow's message to data collector\n");
                         // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        dc_ret = send_to_data_collector(mess, nBytes, 200);
+                        dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_SHADOW_MSG);
                         if (dc_ret < 0) {
                             printf("Failed to send message to data collector.  ret = ");
                         }
@@ -483,7 +490,7 @@ int main(int argc, char *argv[])
                         // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
                         printf("sending message to data collector\n");
                         // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        dc_ret = send_to_data_collector(mess, nBytes, 300);
+                        dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_RTU_DATA);
                         if (dc_ret < 0) {
                             printf("Failed to send message to data collector.  ret = ");
                         }

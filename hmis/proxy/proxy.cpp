@@ -26,6 +26,13 @@ extern "C" {
 
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 
+// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
+#define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
+#define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
+#define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
+#define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
+#define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
+#define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
@@ -211,7 +218,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
 
     if (data_collector_isinsystem) {
         // Forward to the Data Collector:
-        send_to_data_collector(mess, nbytes, main_or_shadow);
+        send_to_data_collector(mess, nbytes, main_or_shadow == 0? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG);
     }
 }
 
@@ -273,7 +280,7 @@ void *listen_on_hmi_sock(void *arg){
             std::cout << "The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
 
             if (data_collector_isinsystem) {
-                send_to_data_collector(mess, nbytes, 2);
+                send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
             if (shadow_isinsystem) {
                 IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");

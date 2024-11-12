@@ -29,6 +29,13 @@ extern "C" {
 #define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 #define SPINES_CONNECT_USEC 0
 
+// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
+#define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
+#define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
+#define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
+#define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
+#define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
+#define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
@@ -166,8 +173,32 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
     timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     datafile << "=== New Entry ===\n";
     datafile << "Time: " << std::ctime(&timestamp); 
-    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";
-    datafile << "Data Stream: " << data_packet->data_stream << "\n";
+    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";    
+
+    std::string data_stream_str;
+    switch (data_packet->data_stream) {
+        case RTU_PROXY_MAIN_MSG:
+            data_stream_str = "RTU_PROXY_MAIN_MSG";
+            break;
+        case RTU_PROXY_SHADOW_MSG:
+            data_stream_str = "RTU_PROXY_SHADOW_MSG";
+            break;
+        case RTU_PROXY_RTU_DATA:
+            data_stream_str = "RTU_PROXY_RTU_DATA";
+            break;
+        case HMI_PROXY_MAIN_MSG:
+            data_stream_str = "HMI_PROXY_MAIN_MSG";
+            break;
+        case HMI_PROXY_SHADOW_MSG:
+            data_stream_str = "HMI_PROXY_SHADOW_MSG";
+            break;
+        case HMI_PROXY_HMI_CMD:
+            data_stream_str = "HMI_PROXY_HMI_CMD";
+            break;
+        default:
+            "<unknown data stream>";
+    }
+    datafile << "Data Stream: " << data_stream_str << "\n";
     
     std::string msg_type_str;
     switch (data->type) {
