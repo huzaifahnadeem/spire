@@ -223,12 +223,12 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
 
     datafile << "Data: \n";
     // datafile << "\t" << "->sig:\t\t"                          << data->sig << "\n";
-    datafile << "\t" << "->sig:\t\t[ ";
+    datafile << "\t" << "->sig:\t\t< ";
     
     for (int i = 0; i < SIGNATURE_SIZE; i++) {
         datafile << +data->sig[i] << "";
     }
-    datafile << " ]\n";
+    datafile << " >\n";
     
     datafile << "\t" << "->mt_num:\t\t"                       << data->mt_num << "\n";
     datafile << "\t" << "->mt_index:\t\t"                     << data->mt_index << "\n";
