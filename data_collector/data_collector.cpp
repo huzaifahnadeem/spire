@@ -276,17 +276,17 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
         datafile << "\t->padd1:"<< payload->padd1 << "\n";
         datafile << "\t->point: [";
         for (int i = 0; i < NUM_POINT; i++) {
-            datafile << payload->point[i] << ((i == NUM_POINT-1) ? "" : ", "); // adding a comma to make it print nicer. dont print comma for the last element
+            datafile << payload->point[i] << ((i < NUM_POINT-1) ? ", " : ""); // adding a comma to make it print nicer. dont print comma for the last element
         }
         datafile << "]\n";
         datafile << "\t->breaker_read (equivalent numerical values in decimal): [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_read[i] << ((i == NUM_POINT-1) ? "" : ", "); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
+            datafile << +payload->breaker_read[i] << ((i < NUM_POINT-1) ? ", " : ""); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
         }
         datafile << "]\n";
         datafile << "\t->breaker_write (equivalent numerical values in decimal): [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_write[i] << ((i == NUM_POINT-1) ? "" : ", ");
+            datafile << +payload->breaker_write[i] << ((i < NUM_POINT-1) ? ", " : "");
         }
         datafile << "]\n";
     }
