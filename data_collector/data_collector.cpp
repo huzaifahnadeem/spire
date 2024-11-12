@@ -271,11 +271,24 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
         datafile << "\t\t" << "->scen_type:\t\t"            << msg_content->scen_type << "\n";
         datafile << "\t\t" << "->sec:\t\t"                  << msg_content->sec << "\n";
         datafile << "\t\t" << "->usec:\t\t"                 << msg_content->usec << "\n";
-        datafile << "\t\t" << "->data:\t\t"                 ;//<< msg_content->data << "\n";
-        for (int i = 0; i < RTU_DATA_PAYLOAD_LEN; i++) {
-            datafile << msg_content->data[i];
+        datafile << "\t\t" << "->data (payload):\n";
+        pnnl_fields * payload = (pnnl_fields *)msg_content->data; // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
+        datafile << "\t->padd1:"<< payload->padd1 << "\n";
+        datafile << "\t->point: [";
+        for (int i = 0; i < NUM_POINT; i++) {
+            datafile << payload->point[i] << ((i == NUM_POINT-1) ? "" : ", "); // adding a comma to make it print nicer. dont print comma for the last element
         }
-        datafile << "\n";
+        datafile << "]\n";
+        datafile << "\t->breaker_read (equivalent numerical values in decimal): [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << +payload->breaker_read[i] << ((i == NUM_POINT-1) ? "" : ", "); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
+        }
+        datafile << "]\n";
+        datafile << "\t->breaker_write (equivalent numerical values in decimal): [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << +payload->breaker_write[i] << ((i == NUM_POINT-1) ? "" : ", ");
+        }
+        datafile << "]\n";
     }
     else {
         std::cout << "Received a message of an unknown type. Type = " << data->type << ".\n";
