@@ -262,7 +262,7 @@ static void init(int ac, char **av)
     printf("Done Finding number of RTU's : %d\n",num_rtu);
     // Setup default values for global variables
     use_socket       = 1;
-    debug            = 1;
+    debug            = 0;
     cycletime        = 1000;        // milliseconds
     n_poll_slave     = 1;           // poll always
     protocol         = rlModbus::MODBUS_RTU;
@@ -270,7 +270,7 @@ static void init(int ac, char **av)
     printf("Reading Globals\n");
     // Read global variable assignments from .ini file
     use_socket   = 1;
-    debug        = cJSON_GetObjectItem(globals, "DEBUG")->valueint;
+    // debug        = cJSON_GetObjectItem(globals, "DEBUG")->valueint;
     cycletime    = cJSON_GetObjectItem(globals, "CYCLETIME")->valueint;
     n_poll_slave = cJSON_GetObjectItem(globals, "N_POLL_SLAVE")->valueint;
     printf("Done Reading Globals\n");
