@@ -552,7 +552,7 @@ int Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto)
         exp.sec  = INT_EXPIRATION_SEC;
         exp.usec = INT_EXPIRATION_USEC;
     }
-    else if (sp_port == SPINES_EXT_PORT || sp_port == SPINES_CTRL_PORT) {
+    else if (sp_port == SPINES_EXT_PORT || sp_port == SPINES_CTRL_PORT || sp_port == SPINES_EXT_PORT_SHADOW) {
         exp.sec  = EXT_EXPIRATION_SEC;
         exp.usec = EXT_EXPIRATION_USEC;
     }
@@ -626,7 +626,7 @@ int Spines_Mcast_SendOnly_Sock(const char *sp_addr, int sp_port, int proto)
         exp.sec  = INT_EXPIRATION_SEC;
         exp.usec = INT_EXPIRATION_USEC;
     }
-    else if (sp_port == SPINES_EXT_PORT || sp_port == SPINES_CTRL_PORT) {
+    else if (sp_port == SPINES_EXT_PORT || sp_port == SPINES_CTRL_PORT || sp_port == SPINES_EXT_PORT_SHADOW) {
         exp.sec  = EXT_EXPIRATION_SEC;
         exp.usec = EXT_EXPIRATION_USEC;
     }

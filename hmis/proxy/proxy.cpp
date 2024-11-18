@@ -76,17 +76,16 @@ int main(int ac, char **av){
     std::string shadow_spinesd_ip_addr; // for spines daemon (shadow system)
     int shadow_spinesd_port;
 
-    parse_args(ac, av, spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port, spinesd_ip_addr, spinesd_port);
+    parse_args(ac, av, spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port, shadow_spinesd_ip_addr, shadow_spinesd_port);
 
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
+    pthread_t shadow_itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
 
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
-    if (shadow_isinsystem) {
-        itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
-    }
+    
     if (data_collector_isinsystem) {
         setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
     }
@@ -96,10 +95,17 @@ int main(int ac, char **av){
     pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
     pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
+    if (shadow_isinsystem) {
+        itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
+        pthread_create(&shadow_itrc_thread, NULL, &ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+    }
+
     pthread_join(hmi_listen_thread, NULL);
     pthread_join(itrc_thread, NULL);
     pthread_join(handle_msg_from_itrc_thread, NULL);
-
+    if (shadow_isinsystem) {
+        pthread_join(shadow_itrc_thread, NULL);
+    }
     return 0;
 }
 
@@ -271,11 +277,9 @@ void *listen_on_hmi_sock(void *arg){
             std::cout << "Received a message from the HMI. ret = " << ret << "\n";
             mess = (signed_message *)buf;
             nbytes = sizeof(signed_message) + mess->len;
-            // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc4");
-            // IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/hmiproxy_ipc_itrc");
             ret = IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
             if (ret < 0) {
-                std::cout << "Failed to sent message to the IRTC threat. ret = " << ret << "\n";
+                std::cout << "Failed to sent message to the IRTC thread. ret = " << ret << "\n";
             }
             std::cout << "The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
 
@@ -283,8 +287,13 @@ void *listen_on_hmi_sock(void *arg){
                 send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
             if (shadow_isinsystem) {
-                IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, "/tmp/shadow_hmiproxy_ipc_itrc4");
-                std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
+                ret = IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+                if (ret < 0) {
+                    std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
+                }
+                else {
+                    std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
+                }
             }
         }
     }
@@ -339,7 +348,7 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, itrc_data &itrc_d
 }
 
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
-    _itrc_init(spinesd_ip_addr, 
+    _itrc_init( spinesd_ip_addr, 
                 spinesd_port, 
                 mainthread_to_itrcthread_data, 
                 itr_client_data, 
@@ -350,9 +359,9 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
                 HMIPROXY_IPC_ITRC );
 }
 
-void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port) {
-    _itrc_init(spinesd_ip_addr, 
-                spinesd_port, 
+void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port) {
+    _itrc_init( shadow_spinesd_ip_addr, 
+                shadow_spinesd_port, 
                 shadow_mainthread_to_itrcthread_data, 
                 shadow_itr_client_data, 
                 shadow_ipc_sock_main_to_itrcthread, 

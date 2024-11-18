@@ -226,7 +226,7 @@ void write_data(std::string data_file_path, struct data_collector_packet * data_
     datafile << "\t" << "->sig:\t\t< ";
     
     for (int i = 0; i < SIGNATURE_SIZE; i++) {
-        datafile << +data->sig[i] << "";
+        datafile << (int)data->sig[i] << "";
     }
     datafile << " >\n";
     
