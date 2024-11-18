@@ -234,12 +234,35 @@ void *handler_msg_from_itrc(void *arg)
     
     std::cout << "initialized handler_msg_from_itrc() \n";
 
-    E_init();
-    E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
-    if (shadow_isinsystem){
-        E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // E_init();
+    // E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // if (shadow_isinsystem){
+    //     E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    // }
+    // E_handle_events();
+
+    fd_set active_fd_set, read_fd_set;
+    int num;
+    // Init data structures for select()
+    FD_ZERO(&active_fd_set);
+    FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
+    if (shadow_isinsystem) {
+        FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
     }
-    E_handle_events();
+    while(1) {
+        read_fd_set = active_fd_set;
+        num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
+        if (num > 0) {
+            if(FD_ISSET(ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
+                recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
+            }
+            if (shadow_isinsystem) {
+                if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
+                    recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
+                }
+            }
+        }
+    }
 
     return NULL;
 }
