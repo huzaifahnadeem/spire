@@ -310,7 +310,7 @@ void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
     data_packet.nbytes_mess = nbytes;
     data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
     ret = spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
-    std::cout << "Sent to data collector with return code ret =" << ret << "\n";
+    std::cout << "Sent to data collector with return code ret = " << ret << "\n";
 }
 
 void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, itrc_data &itrc_data_main, itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)

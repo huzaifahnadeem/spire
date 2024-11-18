@@ -469,6 +469,7 @@ int main(int argc, char *argv[])
                     // dont need to do anything else with it as this message is from the shadow (only main's messages are sent to rtus/plcs)
                 }
             }
+            
             for(i = 0; i < NUM_PROTOCOLS; i++) {
                 if(ipc_used[i] != 1) 
                     continue;
@@ -485,7 +486,17 @@ int main(int argc, char *argv[])
                     if(ret!=nBytes){
                         printf("PROXY: error sending to SM\n");
                     }
+                    
+                    // send to shadow (if it is in the system)
+                    if (shadow_isinsystem == 1) {
+                        printf("PROXY: message from plc, sending data to sm (shadow) \n");
+                        ret = IPC_Send(shadow_ipc_sock, (void *)buff, nBytes, shadow_itrc_main.ipc_remote);
+                        if(ret!=nBytes){
+                            printf("PROXY: error sending to SM (shadow)\n");
+                        }
+                    }
 
+                    // send to data collector (if it is in the system)
                     if (data_collector_isinsystem == 1) {
                         // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
                         printf("sending message to data collector\n");
