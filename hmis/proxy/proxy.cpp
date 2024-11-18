@@ -258,7 +258,7 @@ void *handler_msg_from_itrc(void *arg)
             }
             if (shadow_isinsystem) {
                 if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
-                    recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
+                    recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
                 }
             }
         }
