@@ -481,19 +481,27 @@ int main(int argc, char *argv[])
                     rtud = (rtu_data_msg *)(mess + 1);
                     ps = (seq_pair *)&rtud->seq;
                     ps->incarnation = My_Incarnation;
-                    printf("PROXY: message from plc, sending data to sm\n");
+                    printf("PROXY: message from plc, sending data to sm. ret = ");
                     ret = IPC_Send(ipc_sock, (void *)buff, nBytes, itrc_main.ipc_remote);
                     if(ret!=nBytes){
                         printf("PROXY: error sending to SM\n");
                     }
+                    else {
+                        printf("message sent successfully. ret = ");
+                    }
+                    printf("%d\n", ret);
                     
                     // send to shadow (if it is in the system)
                     if (shadow_isinsystem == 1) {
                         printf("PROXY: message from plc, sending data to sm (shadow) \n");
                         ret = IPC_Send(shadow_ipc_sock, (void *)buff, nBytes, shadow_itrc_main.ipc_remote);
                         if(ret!=nBytes){
-                            printf("PROXY: error sending to SM (shadow)\n");
+                            printf("PROXY: error sending to SM (shadow). ret = ");
                         }
+                        else {
+                            printf("message sent successfully. ret = ");
+                        }
+                        printf("%d\n", ret);
                     }
 
                     // send to data collector (if it is in the system)
