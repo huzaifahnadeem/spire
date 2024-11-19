@@ -44,6 +44,7 @@ bool data_collector_isinsystem = false;
 bool shadow_isinsystem = false;
 
 int ipc_sock_to_hmi, ipc_sock_from_hmi;
+int ipc_sock_leader_to_follower, ipc_sock_follower_to_leader;
 itrc_data mainthread_to_itrcthread_data;
 itrc_data itr_client_data;
 itrc_data shadow_mainthread_to_itrcthread_data;
@@ -52,6 +53,7 @@ int ipc_sock_main_to_itrcthread;
 int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
+bool is_follower = false;
 
 // for comm. with data collector:
 int dc_spines_sock; // spines socket to be used for communicating with the data collector
@@ -60,6 +62,8 @@ struct sockaddr_in dc_addr; // data collector's address (contains ip addr and po
 void usage_check(int ac);
 void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port);
 void setup_ipc_for_hmi();
+void setup_ipc_leader();
+void setup_ipc_follower();
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port);
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port);
 void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
@@ -83,29 +87,36 @@ int main(int ac, char **av) {
     pthread_t shadow_itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
 
-    setup_ipc_for_hmi();
-    itrc_init(spinesd_ip_addr, spinesd_port);
+    if (!is_follower) {
+
+        setup_ipc_for_hmi();
+        if (shadow_isinsystem) {
+            setup_ipc_leader();
+        }
+        itrc_init(spinesd_ip_addr, spinesd_port);
+        
+        if (data_collector_isinsystem) {
+            setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
+        }
+
+        pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
+
+        pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
+        pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+
+        pthread_join(hmi_listen_thread, NULL);
+        pthread_join(itrc_thread, NULL);
+        pthread_join(handle_msg_from_itrc_thread, NULL);
+    }
+    if (is_follower) {
+        setup_ipc_follower();
+        if (shadow_isinsystem) {
+            itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
+            pthread_create(&shadow_itrc_thread, NULL, &ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+            pthread_join(shadow_itrc_thread, NULL);
+        }
+    }
     
-    if (data_collector_isinsystem) {
-        setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
-    }
-
-    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
-
-    pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
-    pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
-    
-    if (shadow_isinsystem) {
-        itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
-        pthread_create(&shadow_itrc_thread, NULL, &ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
-    }
-
-    pthread_join(hmi_listen_thread, NULL);
-    pthread_join(itrc_thread, NULL);
-    pthread_join(handle_msg_from_itrc_thread, NULL);
-    if (shadow_isinsystem) {
-        pthread_join(shadow_itrc_thread, NULL);
-    }
     return 0;
 }
 
@@ -119,13 +130,13 @@ void usage_check(int ac) {
         data_collector_isinsystem = true;
         shadow_isinsystem = false;
     }
-    else if (ac == 4 || ac == 5) { // running with the main system, the data collector, and the shadow system (if running with shadow, the user can optionally provide the directory where the the shadow binaries of spire are. That is useful to find keys if the shadow is running in a different configuration and/or using different keys)
+    else if (ac >= 4) { // running with the main system, the data collector, and the shadow system (if running with shadow, the user can optionally provide the directory where the the shadow binaries of spire are. That is useful to find keys if the shadow is running in a different configuration and/or using different keys)
         data_collector_isinsystem = true;
         shadow_isinsystem = true;
     }
     else {
         printf("Invalid args\n");
-        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort] [shadowSpireDirectory]\n");
+        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [leader || follower] [shadowAddr:shadowPort] [shadowSpireDirectory]\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -150,15 +161,16 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     }
 
     if (shadow_isinsystem) {
-        std::string shadow_spinesd_arg = av[3];
+        std::string shadow_spinesd_arg = av[4];
         colon_pos = -1;
         colon_pos = spinesd_arg.find(':');
         shadow_spinesd_ip_addr = shadow_spinesd_arg.substr(0, colon_pos);
         shadow_spinesd_port = std::stoi(shadow_spinesd_arg.substr(colon_pos + 1));
-        if (ac == 5) {
-            shadow_spire_dir = av[4];
+        if (ac == 6) {
+            shadow_spire_dir = av[5];
         }
     }
+    is_follower = av[4] == "follower"? true: false;
 }
 
 void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port) {
@@ -194,6 +206,18 @@ void setup_ipc_for_hmi()
 {   
     ipc_sock_from_hmi = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMIproxy communication
     ipc_sock_to_hmi = IPC_DGram_SendOnly_Sock(); // for HMIproxy to HMI communication
+}
+
+void setup_ipc_leader()
+{   
+    ipc_sock_leader_to_follower = IPC_DGram_SendOnly_Sock();
+    ipc_sock_follower_to_leader = IPC_DGram_Sock("/tmp/proxy_follower_to_leader");
+}
+
+void setup_ipc_follower()
+{   
+    ipc_sock_follower_to_leader = IPC_DGram_SendOnly_Sock();
+    ipc_sock_leader_to_follower = IPC_DGram_Sock("/tmp/proxy_leader_to_follower");
 }
 
 void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // called by handler_msg_from_itrc
@@ -294,15 +318,15 @@ void *listen_on_hmi_sock(void *arg){
             if (data_collector_isinsystem) {
                 send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
-            if (shadow_isinsystem) {
-                ret = IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
-                if (ret < 0) {
-                    std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
-                }
-                else {
-                    std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
-                }
-            }
+            // if (shadow_isinsystem) {
+            //     ret = IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+            //     if (ret < 0) {
+            //         std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
+            //     }
+            //     else {
+            //         std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
+            //     }
+            // }
         }
     }
     return NULL;
