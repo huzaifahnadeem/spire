@@ -100,6 +100,7 @@ pthread_t shadow_itrc_thread_tid;
 int shadow_ipc_sock;
 int dc_proto, dc_spines_sock, dc_ret;
 struct timeval dc_spines_timeout, *dc_t;
+int dc_conn_successful = 0;
 struct sockaddr_in dc_dest;
 
 extern int32u My_Global_Configuration_Number;
@@ -137,6 +138,7 @@ void Process_Config_Msg(signed_message * conf_mess,int mess_size){
 int usage_check(int ac);
 int parse_args(int ac, char **av);
 int send_to_data_collector(signed_message *msg, int nbytes, int stream);
+void setup_connection_to_data_collector();
 
 // conver string to protocol enum
 int string_to_protocol(char * prot) {
@@ -187,27 +189,7 @@ int main(int argc, char *argv[])
 
     // set up socket for data collector connection
     if (data_collector_isinsystem == 1) { // init these only if there is a data_collector in the system
-        dc_proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
-        /* Setup the spines timeout frequency - if disconnected, will try to reconnect
-        *  this often */
-        // #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
-        // #define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
-        dc_spines_timeout.tv_sec  = 2; // DATA_COLLECTOR_SPINES_CONNECT_SEC;
-        dc_spines_timeout.tv_usec = 0; // DATA_COLLECTOR_SPINES_CONNECT_USEC;
-        dc_spines_sock = -1; // -1 is not a real socket so init to that
-        dc_spines_sock = Spines_SendOnly_Sock(spinesd_ip_addr, spinesd_port, dc_proto);
-        if (dc_spines_sock < 0) {
-            printf("setting up data collecor conn.: Unable to connect to Spines, trying again soon\n");
-            dc_t = &dc_spines_timeout; 
-        }
-        else {
-            printf("setting up data collector conn.: Connected to Spines\n");
-            dc_t = NULL;
-        }
-        
-        dc_dest.sin_family = AF_INET;
-        dc_dest.sin_port = htons(dc_spinesd_port);
-        dc_dest.sin_addr.s_addr = inet_addr(dc_spinesd_ip_addr);
+        setup_connection_to_data_collector();
     }
     
     My_Global_Configuration_Number=0;
@@ -380,6 +362,7 @@ int main(int argc, char *argv[])
     }
 
     while (1) {
+
         tmask = mask;
         num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
 
@@ -569,6 +552,11 @@ int parse_args(int ac, char **av) {
 }
 
 int send_to_data_collector(signed_message *msg, int nbytes, int stream) {
+    // check if data collector connection was successful. if not, try to establish it first
+    if (dc_conn_successful == 0) {
+        setup_connection_to_data_collector(); // TODO Should set up a timer of something. currently spines_timeout dont seem to be used anywhere (including in ITRC client?)
+    }
+
     int ret;
     // ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
     struct data_collector_packet data_packet;
@@ -579,4 +567,30 @@ int send_to_data_collector(signed_message *msg, int nbytes, int stream) {
     ret = spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
 
     return ret;
+}
+
+void setup_connection_to_data_collector() {
+    dc_proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
+    /* Setup the spines timeout frequency - if disconnected, will try to reconnect
+    *  this often */
+    // #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+    // #define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
+    dc_spines_timeout.tv_sec  = 2; // DATA_COLLECTOR_SPINES_CONNECT_SEC;
+    dc_spines_timeout.tv_usec = 0; // DATA_COLLECTOR_SPINES_CONNECT_USEC;
+    dc_spines_sock = -1; // -1 is not a real socket so init to that
+    dc_spines_sock = Spines_SendOnly_Sock(spinesd_ip_addr, spinesd_port, dc_proto);
+    if (dc_spines_sock < 0) {
+        printf("setting up data collector conn.: Unable to connect to Spines, trying again soon\n");
+        // dc_t = &dc_spines_timeout; 
+        dc_conn_successful = 0;
+    }
+    else {
+        printf("setting up data collector conn.: Connected to Spines\n");
+        // dc_t = NULL;
+        dc_conn_successful = 1;
+    }
+    
+    dc_dest.sin_family = AF_INET;
+    dc_dest.sin_port = htons(dc_spinesd_port);
+    dc_dest.sin_addr.s_addr = inet_addr(dc_spinesd_ip_addr);
 }
