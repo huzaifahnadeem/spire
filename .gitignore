@@ -110,6 +110,8 @@ pvb/designer/src/Makefile.pvbplugin
 !benchmark/Makefile
 !dnp3/Makefile
 !hmis/Makefile
+!hmis/proxy/Makefile
+!hmis/pnnl_hmi_for_proxy/Makefile
 !hmis/ems_hmi/Makefile
 !hmis/heco_3breaker/Makefile
 !hmis/heco_5breaker/Makefile

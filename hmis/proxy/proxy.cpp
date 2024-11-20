@@ -15,14 +15,46 @@
 #include <cstring> // for memset
 #include <string>
 
-extern "C" {
-    #include "../common/net_wrapper.h"
-    #include "../common/def.h"
-    #include "../common/itrc.h"
-    #include "spu_events.h"
-    #include "stdutil/stdcarr.h"
-    #include "spines_lib.h"
+namespace ns_main {
+    // extern "C" {
+    //     #include "../../common/net_wrapper.h"
+    //     #include "../../common/def.h"
+    //     #include "../../common/itrc.h"
+    //     #include "../../prime/libspread-util/include/spu_events.h"
+    //     #include "../../prime/stdutil/src/stdutil/stdcarr.h"
+    //     #include "../../spines/libspines/spines_lib.h"
+    // }
+    extern "C" {
+        #include "../common/net_wrapper.h"
+        #include "../common/def.h"
+        #include "../common/itrc.h"
+        #include "spu_events.h"
+        #include "stdutil/stdcarr.h"
+        #include "spines_lib.h"
+    }
 }
+
+// namespace ns_shadow {
+//     extern "C" {
+//         #include "../shadow-spire/common/net_wrapper.h"
+//         #include "../shadow-spire/common/scada_packets.h"
+//         #include "../shadow-spire/common/def.h"
+//         #include "../shadow-spire/common/itrc.h"
+//         #include "../shadow-spire/prime/libspread-util/include/spu_events.h"
+//         #include "../shadow-spire/prime/stdutil/src/stdutil/stdcarr.h"
+//         #include "../shadow-spire/spines/libspines/spines_lib.h"
+//     }
+//     // extern "C" {
+//     //     #include "../common/net_wrapper.h"
+//     //     #include "../common/def.h"
+//     //     #include "../common/itrc.h"
+//     //     #include "spu_events.h"
+//     //     #include "stdutil/stdcarr.h"
+//     //     #include "spines_lib.h"
+//     // }
+// }
+
+// #include "./shadow_ns_fns.cpp"
 
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 
@@ -37,17 +69,17 @@ struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
     int nbytes_struct;
-    signed_message system_message;
+    ns_main::signed_message system_message;
 }; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
 
 bool data_collector_isinsystem = false;
 bool shadow_isinsystem = false;
 
 int ipc_sock_to_hmi, ipc_sock_from_hmi;
-itrc_data mainthread_to_itrcthread_data;
-itrc_data itr_client_data;
-itrc_data shadow_mainthread_to_itrcthread_data;
-itrc_data shadow_itr_client_data;
+ns_main::itrc_data mainthread_to_itrcthread_data;
+ns_main::itrc_data itr_client_data;
+ns_main::itrc_data shadow_mainthread_to_itrcthread_data;
+ns_main::itrc_data shadow_itr_client_data;
 int ipc_sock_main_to_itrcthread;
 int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
@@ -65,7 +97,7 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
-void send_to_data_collector(signed_message *msg, int nbytes, int stream);
+void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream);
 void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 
 int main(int ac, char **av) {
@@ -93,11 +125,11 @@ int main(int ac, char **av) {
     pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
 
     pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
-    pthread_create(&itrc_thread, NULL, &ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+    pthread_create(&itrc_thread, NULL, &ns_main::ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
     if (shadow_isinsystem) {
         itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
-        pthread_create(&shadow_itrc_thread, NULL, &ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+        // pthread_create(&shadow_itrc_thread, NULL, &ns_shadow::ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     }
 
     pthread_join(hmi_listen_thread, NULL);
@@ -174,7 +206,7 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
     dc_spines_sock = -1; // -1 is not a real socket so init to that
     while (1)
     {
-        dc_spines_sock = Spines_SendOnly_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto);
+        dc_spines_sock = ns_main::Spines_SendOnly_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto);
         if (dc_spines_sock < 0) {
             std::cout << "setup_datacoll_spines_sock(): Unable to connect to Spines, trying again soon\n";
             sleep(spines_timeout);
@@ -192,8 +224,8 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
 
 void setup_ipc_for_hmi()
 {   
-    ipc_sock_from_hmi = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMIproxy communication
-    ipc_sock_to_hmi = IPC_DGram_SendOnly_Sock(); // for HMIproxy to HMI communication
+    ipc_sock_from_hmi = ns_main::IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMIproxy communication
+    ipc_sock_to_hmi = ns_main::IPC_DGram_SendOnly_Sock(); // for HMIproxy to HMI communication
 }
 
 void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // called by handler_msg_from_itrc
@@ -201,7 +233,7 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
     int ret; 
     int nbytes;
     char buf[MAX_LEN];
-    signed_message *mess;
+    ns_main::signed_message *mess;
 
     // UNUSED(dummy1);
     UNUSED(dummy2);
@@ -211,14 +243,14 @@ void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // call
     // Receive from ITRC Client"
     if (main_or_shadow == 0) std::cout << "There is a message from the ITRC Client (main) \n";      // (main_or_shadow == 0) => main
     if (main_or_shadow == 1) std::cout << "There is a message from the ITRC Client (shadow) \n";    // (main_or_shadow == 1) => shadow
-    ret = IPC_Recv(s, buf, MAX_LEN);
+    ret = ns_main::IPC_Recv(s, buf, MAX_LEN);
     if (ret < 0) printf("recv_msg_from_itrc(): IPC_Rev failed\n");
     
-    mess = (signed_message *)buf;
-    nbytes = sizeof(signed_message) + mess->len;
+    mess = (ns_main::signed_message *)buf;
+    nbytes = sizeof(ns_main::signed_message) + mess->len;
     // Forward to HMI (only forward messages that are coming from the main system (shadow's messages are only fw to data collector, thats it))
     if (main_or_shadow == 0) {
-        IPC_Send(ipc_sock_to_hmi, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
+        ns_main::IPC_Send(ipc_sock_to_hmi, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
         std::cout << "The message has been forwarded to the HMI\n";
     }
 
@@ -272,20 +304,20 @@ void *listen_on_hmi_sock(void *arg){
 
     int ret; 
     char buf[MAX_LEN];
-    signed_message *mess;
+    ns_main::signed_message *mess;
     int nbytes;
 
     for (;;) {
         std::cout << "Waiting to receive something on the HMI socket\n";
-        ret = IPC_Recv(ipc_sock_from_hmi, buf, MAX_LEN);
+        ret = ns_main::IPC_Recv(ipc_sock_from_hmi, buf, MAX_LEN);
         if (ret < 0) {
             std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
         }
         else {
             std::cout << "Received a message from the HMI. ret = " << ret << "\n";
-            mess = (signed_message *)buf;
-            nbytes = sizeof(signed_message) + mess->len;
-            ret = IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
+            mess = (ns_main::signed_message *)buf;
+            nbytes = sizeof(ns_main::signed_message) + mess->len;
+            ret = ns_main::IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
             if (ret < 0) {
                 std::cout << "Failed to sent message to the IRTC thread. ret = " << ret << "\n";
             }
@@ -295,7 +327,7 @@ void *listen_on_hmi_sock(void *arg){
                 send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
             if (shadow_isinsystem) {
-                ret = IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+                ret = ns_main::IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
                 if (ret < 0) {
                     std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
                 }
@@ -308,7 +340,7 @@ void *listen_on_hmi_sock(void *arg){
     return NULL;
 }
 
-void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
+void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream) {
     int ret;
     std::cout << "Sending to data collector\n";
     // ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
@@ -316,43 +348,77 @@ void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
     data_packet.data_stream = stream;
     data_packet.system_message = *msg;
     data_packet.nbytes_mess = nbytes;
-    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
-    ret = spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    data_packet.nbytes_struct = sizeof(ns_main::signed_message) + msg->len + 3*sizeof(int);
+    ret = ns_main::spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
 }
 
-void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, itrc_data &itrc_data_main, itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
+void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_main::itrc_data &itrc_data_main, ns_main::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile, bool is_shadow)
 {   
-    struct timeval now;
-    My_Global_Configuration_Number = 0;
-    Init_SM_Replicas();
+    if (is_shadow == false) { // main
+        struct timeval now;
+        ns_main::My_Global_Configuration_Number = 0;
+        ns_main::Init_SM_Replicas();
 
-    // NET Setup
-    gettimeofday(&now, NULL);
-    My_Incarnation = now.tv_sec;
-    Seq_Num = 1;
-    Type = HMI_TYPE;
-    My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-    Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + My_ID;
-    My_IP = getIP();
+        // NET Setup
+        gettimeofday(&now, NULL);
+        ns_main::My_Incarnation = now.tv_sec;
+        Seq_Num = 1;
+        ns_main::Type = HMI_TYPE;
+        ns_main::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
+        ns_main::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_main::My_ID;
+        ns_main::My_IP = ns_main::getIP();
 
-    // Setup IPC for HMI main thread
-    memset(&itrc_data_main, 0, sizeof(itrc_data));
-    sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), My_ID);
-    sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), My_ID);
-    
-    sock_main_to_itrc_thread = IPC_DGram_Sock(itrc_data_main.ipc_local);
+        // Setup IPC for HMI main thread
+        memset(&itrc_data_main, 0, sizeof(ns_main::itrc_data));
+        sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+        sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+        sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
+        sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
+        
+        sock_main_to_itrc_thread = ns_main::IPC_DGram_Sock(itrc_data_main.ipc_local);
 
-    // Setup IPC for Worker thread (itrc client)
-    memset(&itrc_data_itrcclient, 0, sizeof(itrc_data));
-    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), My_ID);
-    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), My_ID);
-    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+        // Setup IPC for Worker thread (itrc client)
+        memset(&itrc_data_itrcclient, 0, sizeof(ns_main::itrc_data));
+        sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+        sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+        sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
+        sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
+        sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+        sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+    }
+    // else {
+    //     struct timeval now;
+    //     ns_shadow::My_Global_Configuration_Number = 0;
+    //     ns_shadow::Init_SM_Replicas();
+
+    //     // NET Setup
+    //     gettimeofday(&now, NULL);
+    //     ns_shadow::My_Incarnation = now.tv_sec;
+    //     Seq_Num = 1;
+    //     ns_shadow::Type = HMI_TYPE;
+    //     ns_shadow::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
+    //     ns_shadow::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_shadow::My_ID;
+    //     ns_shadow::My_IP = ns_shadow::getIP();
+
+    //     // Setup IPC for HMI main thread
+    //     memset(&itrc_data_main, 0, sizeof(ns_shadow::itrc_data));
+    //     sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    //     sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    //     sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
+    //     sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
+        
+    //     sock_main_to_itrc_thread = ns_shadow::IPC_DGram_Sock(itrc_data_main.ipc_local);
+
+    //     // Setup IPC for Worker thread (itrc client)
+    //     memset(&itrc_data_itrcclient, 0, sizeof(ns_shadow::itrc_data));
+    //     sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    //     sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    //     sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
+    //     sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
+    //     sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+    //     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+    // }
 }
 
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
@@ -364,7 +430,8 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
                 HMI_PRIME_KEYS, 
                 HMI_SM_KEYS, 
                 HMIPROXY_IPC_MAIN, 
-                HMIPROXY_IPC_ITRC );
+                HMIPROXY_IPC_ITRC, 
+                false);
 }
 
 void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port) {
@@ -376,5 +443,6 @@ void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_por
                 shadow_spire_dir == "./" ? shadow_spire_dir + HMI_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
                 shadow_spire_dir == "./" ? shadow_spire_dir + HMI_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, 
                 HMIPROXY_IPC_MAIN_SHADOW, 
-                HMIPROXY_IPC_ITRC_SHADOW );
+                HMIPROXY_IPC_ITRC_SHADOW, 
+                true);
 }
