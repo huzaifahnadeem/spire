@@ -15,48 +15,24 @@
 #include <cstring> // for memset
 #include <string>
 
+#include <sys/wait.h> // for forking shadow_io proc
+#include <sys/types.h>
+
 namespace ns_main {
-    // extern "C" {
-    //     #include "../../common/net_wrapper.h"
-    //     #include "../../common/def.h"
-    //     #include "../../common/itrc.h"
-    //     #include "../../prime/libspread-util/include/spu_events.h"
-    //     #include "../../prime/stdutil/src/stdutil/stdcarr.h"
-    //     #include "../../spines/libspines/spines_lib.h"
-    // }
     extern "C" {
-        #include "../common/net_wrapper.h"
-        #include "../common/def.h"
-        #include "../common/itrc.h"
-        #include "spu_events.h"
-        #include "stdutil/stdcarr.h"
-        #include "spines_lib.h"
+        #include "common/net_wrapper.h"  // needs: -I$(SPIRE)/common
+        #include "common/def.h"          // needs: -I$(SPIRE)/common
+        #include "common/itrc.h"         // needs: -I$(SPIRE)/common
+        #include "prime/libspread-util/include/spu_events.h"             // needs: -I$(PRIME)/libspread-util/include
+        #include "prime/stdutil/include/stdutil/stdcarr.h"        // needs: -I$(PRIME)/stdutil/include
+        #include "spines/libspines/spines_lib.h"             // needs: -I$(SPINES)/libspines/ 
     }
 }
 
-// namespace ns_shadow {
-//     extern "C" {
-//         #include "../shadow-spire/common/net_wrapper.h"
-//         #include "../shadow-spire/common/scada_packets.h"
-//         #include "../shadow-spire/common/def.h"
-//         #include "../shadow-spire/common/itrc.h"
-//         #include "../shadow-spire/prime/libspread-util/include/spu_events.h"
-//         #include "../shadow-spire/prime/stdutil/src/stdutil/stdcarr.h"
-//         #include "../shadow-spire/spines/libspines/spines_lib.h"
-//     }
-//     // extern "C" {
-//     //     #include "../common/net_wrapper.h"
-//     //     #include "../common/def.h"
-//     //     #include "../common/itrc.h"
-//     //     #include "spu_events.h"
-//     //     #include "stdutil/stdcarr.h"
-//     //     #include "spines_lib.h"
-//     // }
-// }
-
-// #include "./shadow_ns_fns.cpp"
-
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+
+#define IPC_FROM_SHADOWIO_CHILD "/tmp/hmiproxy_ipc_shadowio_to_proxy"
+#define IPC_TO_SHADOWIO_CHILD "/tmp/hmiproxy_ipc_proxy_to_shadowio"
 
 // TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
@@ -78,12 +54,14 @@ bool shadow_isinsystem = false;
 int ipc_sock_to_hmi, ipc_sock_from_hmi;
 ns_main::itrc_data mainthread_to_itrcthread_data;
 ns_main::itrc_data itr_client_data;
-ns_main::itrc_data shadow_mainthread_to_itrcthread_data;
-ns_main::itrc_data shadow_itr_client_data;
+// ns_main::itrc_data shadow_mainthread_to_itrcthread_data;
+// ns_main::itrc_data shadow_itr_client_data;
 int ipc_sock_main_to_itrcthread;
-int shadow_ipc_sock_main_to_itrcthread;
+// int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
+std::string shadow_io_path = "./shadow_io/shadow_io";
+int ipc_sock_to_child, ipc_sock_from_child;
 
 // for comm. with data collector:
 int dc_spines_sock; // spines socket to be used for communicating with the data collector
@@ -98,7 +76,8 @@ void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
 void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream);
-void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
+// void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
+void setup_ipc_with_shadow_io();
 
 int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon (main system)
@@ -112,7 +91,7 @@ int main(int ac, char **av) {
     
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
-    pthread_t shadow_itrc_thread;
+    // pthread_t shadow_itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
 
     setup_ipc_for_hmi();
@@ -128,16 +107,42 @@ int main(int ac, char **av) {
     pthread_create(&itrc_thread, NULL, &ns_main::ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
     if (shadow_isinsystem) {
-        itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
+        // itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
         // pthread_create(&shadow_itrc_thread, NULL, &ns_shadow::ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+        
+        /* Start shadow_io proc */
+        printf("Starting shadow_io proc\n");
+        pid_t pid;
+        //child -- run program on path
+        char * arg_shadow_ipaddr;
+        sprintf(arg_shadow_ipaddr, "%s", shadow_spinesd_ip_addr.c_str()); // essentially equal to arg_shadow_ipaddr = shadow_spinesd_ip_addr.c_str()
+        char * arg_shadow_port;
+        sprintf(arg_shadow_port, "%d", shadow_spinesd_port);
+        char * arg_shadow_dir;
+        sprintf(arg_shadow_dir, "%s", shadow_spire_dir.c_str());
+        char* args_for_shadow_io[3] = {arg_shadow_ipaddr, arg_shadow_port, arg_shadow_dir};
+        if ((pid = fork()) < 0) { // error case
+            std::cout << "Error: fork returned pid < 0\n";
+            exit(1);
+        }
+        else if(pid == 0) { 
+            // only child proc will run this. parent moves to the very next line after the end of 'if (shadow_isinsystem)' if statement
+            printf("The child proc's pid is: %d\n", getpid());
+            // if (execv(shadow_io_path.c_str(), NULL) < 0) {
+            if (execv(shadow_io_path.c_str(), &args_for_shadow_io[0]) < 0) {
+                std::cout << "error starting shadow_io\n";
+                exit(1); // exit child
+            }
+        } 
+        // no need to separately make a thread to listen for updates from shadow_io. that itrc handler checks for that
     }
 
     pthread_join(hmi_listen_thread, NULL);
     pthread_join(itrc_thread, NULL);
     pthread_join(handle_msg_from_itrc_thread, NULL);
-    if (shadow_isinsystem) {
-        pthread_join(shadow_itrc_thread, NULL);
-    }
+    // if (shadow_isinsystem) {
+    //     pthread_join(shadow_itrc_thread, NULL);
+    // }
     return 0;
 }
 
@@ -279,7 +284,8 @@ void *handler_msg_from_itrc(void *arg)
     FD_ZERO(&active_fd_set);
     FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
     if (shadow_isinsystem) {
-        FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
+        // FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
+        FD_SET(ipc_sock_from_child, &active_fd_set);
     }
     while(1) {
         read_fd_set = active_fd_set;
@@ -289,8 +295,11 @@ void *handler_msg_from_itrc(void *arg)
                 recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
             }
             if (shadow_isinsystem) {
-                if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
-                    recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
+                // if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
+                //     recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
+                // }
+                if(FD_ISSET(ipc_sock_from_child, &read_fd_set)) { // if there is a message from itrc client (shadow)
+                    recv_then_fw_to_hmi_and_dc(ipc_sock_from_child, 1, NULL);
                 }
             }
         }
@@ -327,7 +336,8 @@ void *listen_on_hmi_sock(void *arg){
                 send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
             if (shadow_isinsystem) {
-                ret = ns_main::IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+                // ret = ns_main::IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+                ret = ns_main::IPC_Send(ipc_sock_to_child, (void *)mess, nbytes, IPC_TO_SHADOWIO_CHILD);
                 if (ret < 0) {
                     std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
                 }
@@ -353,72 +363,38 @@ void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
 }
 
-void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_main::itrc_data &itrc_data_main, ns_main::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile, bool is_shadow)
+void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_main::itrc_data &itrc_data_main, ns_main::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
 {   
-    if (is_shadow == false) { // main
-        struct timeval now;
-        ns_main::My_Global_Configuration_Number = 0;
-        ns_main::Init_SM_Replicas();
+    struct timeval now;
+    ns_main::My_Global_Configuration_Number = 0;
+    ns_main::Init_SM_Replicas();
 
-        // NET Setup
-        gettimeofday(&now, NULL);
-        ns_main::My_Incarnation = now.tv_sec;
-        Seq_Num = 1;
-        ns_main::Type = HMI_TYPE;
-        ns_main::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-        ns_main::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_main::My_ID;
-        ns_main::My_IP = ns_main::getIP();
+    // NET Setup
+    gettimeofday(&now, NULL);
+    ns_main::My_Incarnation = now.tv_sec;
+    Seq_Num = 1;
+    ns_main::Type = HMI_TYPE;
+    ns_main::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
+    ns_main::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_main::My_ID;
+    ns_main::My_IP = ns_main::getIP();
 
-        // Setup IPC for HMI main thread
-        memset(&itrc_data_main, 0, sizeof(ns_main::itrc_data));
-        sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-        sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-        sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
-        sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
-        
-        sock_main_to_itrc_thread = ns_main::IPC_DGram_Sock(itrc_data_main.ipc_local);
+    // Setup IPC for HMI main thread
+    memset(&itrc_data_main, 0, sizeof(ns_main::itrc_data));
+    sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
+    sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
+    
+    sock_main_to_itrc_thread = ns_main::IPC_DGram_Sock(itrc_data_main.ipc_local);
 
-        // Setup IPC for Worker thread (itrc client)
-        memset(&itrc_data_itrcclient, 0, sizeof(ns_main::itrc_data));
-        sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-        sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-        sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
-        sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
-        sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-        sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
-    }
-    // else {
-    //     struct timeval now;
-    //     ns_shadow::My_Global_Configuration_Number = 0;
-    //     ns_shadow::Init_SM_Replicas();
-
-    //     // NET Setup
-    //     gettimeofday(&now, NULL);
-    //     ns_shadow::My_Incarnation = now.tv_sec;
-    //     Seq_Num = 1;
-    //     ns_shadow::Type = HMI_TYPE;
-    //     ns_shadow::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-    //     ns_shadow::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_shadow::My_ID;
-    //     ns_shadow::My_IP = ns_shadow::getIP();
-
-    //     // Setup IPC for HMI main thread
-    //     memset(&itrc_data_main, 0, sizeof(ns_shadow::itrc_data));
-    //     sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    //     sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    //     sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
-    //     sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
-        
-    //     sock_main_to_itrc_thread = ns_shadow::IPC_DGram_Sock(itrc_data_main.ipc_local);
-
-    //     // Setup IPC for Worker thread (itrc client)
-    //     memset(&itrc_data_itrcclient, 0, sizeof(ns_shadow::itrc_data));
-    //     sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    //     sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    //     sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
-    //     sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
-    //     sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    //     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
-    // }
+    // Setup IPC for Worker thread (itrc client)
+    memset(&itrc_data_itrcclient, 0, sizeof(ns_main::itrc_data));
+    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
+    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
+    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
 }
 
 void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
@@ -430,19 +406,11 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
                 HMI_PRIME_KEYS, 
                 HMI_SM_KEYS, 
                 HMIPROXY_IPC_MAIN, 
-                HMIPROXY_IPC_ITRC, 
-                false);
+                HMIPROXY_IPC_ITRC );
 }
 
-void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port) {
-    _itrc_init( shadow_spinesd_ip_addr, 
-                shadow_spinesd_port, 
-                shadow_mainthread_to_itrcthread_data, 
-                shadow_itr_client_data, 
-                shadow_ipc_sock_main_to_itrcthread, 
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, 
-                HMIPROXY_IPC_MAIN_SHADOW, 
-                HMIPROXY_IPC_ITRC_SHADOW, 
-                true);
+void setup_ipc_with_shadow_io() {
+    // shadow_io is the child:
+    ipc_sock_to_child = ns_main::IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
+    ipc_sock_from_child = ns_main::IPC_DGram_Sock(IPC_FROM_SHADOWIO_CHILD); // for receiving something FROM the parent
 }
