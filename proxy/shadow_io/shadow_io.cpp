@@ -28,8 +28,8 @@ namespace ns_shadow {
     }
 }
 
-#define IPC_TO_PARENT "/tmp/hmiproxy_ipc_shadowio_to_proxy"
-#define IPC_FROM_PARENT "/tmp/hmiproxy_ipc_proxy_to_shadowio"
+#define IPC_TO_PARENT "/tmp/ssproxy_ipc_shadowio_to_proxy"
+#define IPC_FROM_PARENT "/tmp/ssproxy_ipc_proxy_to_shadowio"
 
 void parse_args(int ac, char **av, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port, std::string &shadow_spire_dir);
 void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port, std::string shadow_spire_dir);
@@ -41,6 +41,7 @@ int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 int ipc_sock_to_parent, ipc_sock_from_parent;
 ns_shadow::itrc_data shadow_mainthread_to_itrcthread_data, shadow_itr_client_data;
+int my_id_for_itrc;
 
 int main(int ac, char **av) {
     std::cout << "shadow_io starts \n";
@@ -70,49 +71,51 @@ int main(int ac, char **av) {
 }
 
 void parse_args(int ac, char **av, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port, std::string &shadow_spire_dir) {
-    if (ac != 4) {
+    if (ac != 5) {
         printf("Invalid args\n");
-        printf("Usage: ./shadow_io spinesIPAddr spinesPort shadowSpireDirectoryBase\n");
+        printf("Usage: ./shadow_io spinesIPAddr spinesPort shadowSpireDirectoryBase My_ID_for_ITRC\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
     shadow_spinesd_ip_addr = av[1];
     shadow_spinesd_port = atoi(av[2]);
     shadow_spire_dir = av[3];
+    my_id_for_itrc = atoi(av[4]);
 }
 
-void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_shadow::itrc_data &itrc_data_main, ns_shadow::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
+void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_shadow::itrc_data &itrc_data_main, ns_shadow::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string proxy_prime_keys_dir, std::string proxy_sm_keys_dir, std::string ssproxy_ipc_main_procfile, std::string ssproxy_ipc_itrc_procfile)
 {   
     struct timeval now;
     ns_shadow::My_Global_Configuration_Number = 0;
     ns_shadow::Init_SM_Replicas();
 
-    // NET Setup
+    // // NET Setup
     gettimeofday(&now, NULL);
     ns_shadow::My_Incarnation = now.tv_sec;
-    Seq_Num = 1;
-    ns_shadow::Type = HMI_TYPE;
-    ns_shadow::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-    ns_shadow::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_shadow::My_ID;
-    ns_shadow::My_IP = ns_shadow::getIP();
-
-    // Setup IPC for HMI main thread
-    memset(&itrc_data_main, 0, sizeof(ns_shadow::itrc_data));
-    sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
-    sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
+    // Seq_Num = 1;
     
+    ns_shadow::Type = RTU_TYPE;
+    ns_shadow::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + ns_shadow::My_ID;
+    ns_shadow::My_IP = ns_shadow::getIP();
+    ns_shadow::My_ID = my_id_for_itrc;
+
+    // Setup IPC for the RTU Proxy main thread
+    printf("PROXY: Setting up IPC for RTU proxy thread (For Shadow)\n");
+    memset(&itrc_data_main, 0, sizeof(ns_shadow::itrc_data));
+    sprintf(itrc_data_main.prime_keys_dir, "%s", proxy_prime_keys_dir.c_str());
+    sprintf(itrc_data_main.sm_keys_dir, "%s", proxy_sm_keys_dir.c_str());
+    sprintf(itrc_data_main.ipc_local, "%s%d", ssproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
+    sprintf(itrc_data_main.ipc_remote, "%s%d", ssproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
     sock_main_to_itrc_thread = ns_shadow::IPC_DGram_Sock(itrc_data_main.ipc_local);
 
-    // Setup IPC for Worker thread (itrc client)
+    // Setup IPC for the Worker Thread (running the ITRC Client)
     memset(&itrc_data_itrcclient, 0, sizeof(ns_shadow::itrc_data));
-    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
-    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
+    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", proxy_prime_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", proxy_sm_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", ssproxy_ipc_itrc_procfile.c_str(), ns_shadow::My_ID);
+    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", ssproxy_ipc_main_procfile.c_str(), ns_shadow::My_ID);
     sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);   
 }
 
 void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port, std::string shadow_spire_dir) {
@@ -121,12 +124,11 @@ void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_por
                 shadow_mainthread_to_itrcthread_data, 
                 shadow_itr_client_data, 
                 shadow_ipc_sock_main_to_itrcthread, 
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_SM_KEYS, 
-                HMIPROXY_IPC_MAIN_SHADOW, 
-                HMIPROXY_IPC_ITRC_SHADOW ); 
-
-    // TODO: ? ns_shadow::HMI_SM_KEYS ?
+                shadow_spire_dir == "./" ? shadow_spire_dir + PROXY_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + PROXY_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
+                shadow_spire_dir == "./" ? shadow_spire_dir + PROXY_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + PROXY_SM_KEYS, 
+                RTU_IPC_MAIN_SHADOW, 
+                RTU_IPC_ITRC_SHADOW );
+    // TODO: ? ns_shadow::PROXY_PRIME_KEYS ?
 }
 
 void setup_ipc_with_parent() {

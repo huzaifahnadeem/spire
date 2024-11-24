@@ -146,8 +146,6 @@
  * center and data center sites */
 #define SPINES_CTRL_PORT     8900
 
-#define SPINES_EXT_PORT_SHADOW     18120
-
 /* Base ports for Spines connections. Each Spire component connects to Spines
  * on the base port for its connection type + its ID. Note that control-center
  * SCADA Masters connect twice (once on the external network using

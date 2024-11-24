@@ -95,50 +95,30 @@ char* dc_spinesd_ip_addr; // data collector addr
 int dc_spinesd_port;    // data collector port
 char* shadow_spinesd_ip_addr; // data collector addr
 int shadow_spinesd_port;    // data collector port
-itrc_data shadow_itrc_main, shadow_itrc_thread;
-pthread_t shadow_itrc_thread_tid;
-int shadow_ipc_sock;
+// itrc_data shadow_itrc_main, shadow_itrc_thread;
+// pthread_t shadow_itrc_thread_tid;
+// int shadow_ipc_sock;
 int dc_proto, dc_spines_sock, dc_ret;
 struct timeval dc_spines_timeout, *dc_t;
 int dc_conn_successful = 0;
 struct sockaddr_in dc_dest;
 
+// shadow_io:
+#define IPC_FROM_SHADOWIO_CHILD "/tmp/ssproxy_ipc_shadowio_to_proxy"
+#define IPC_TO_SHADOWIO_CHILD "/tmp/ssproxy_ipc_proxy_to_shadowio"
+int ipc_sock_to_shadowio_child, ipc_sock_from_shadowio_child;
+char * shadow_io_path = "./shadow_io/shadow_io";
+char * shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
+
 extern int32u My_Global_Configuration_Number;
 
 void Process_Config_Msg(signed_message * conf_mess,int mess_size);
-
-void Process_Config_Msg(signed_message * conf_mess,int mess_size){
-    config_message *c_mess;
-
-    if (mess_size!= sizeof(signed_message)+sizeof(config_message)){
-        printf("Config message is %d ,not expected size of %d\n",mess_size, sizeof(signed_message)+sizeof(config_message));
-        return;
-    }
-
-    if(!OPENSSL_RSA_Verify((unsigned char*)conf_mess+SIGNATURE_SIZE,
-                sizeof(signed_message)+conf_mess->len-SIGNATURE_SIZE,
-                (unsigned char*)conf_mess,conf_mess->machine_id,RSA_CONFIG_MNGR)){
-        printf("Benchmark: Config message signature verification failed\n");
-
-        return;
-    }
-    printf("Verified Config Message\n");
-    if(conf_mess->global_configuration_number<=My_Global_Configuration_Number){
-        printf("Got config=%u and I am already in %u config\n",conf_mess->global_configuration_number,My_Global_Configuration_Number);
-        return;
-    }
-    My_Global_Configuration_Number=conf_mess->global_configuration_number;
-    c_mess=(config_message *)(conf_mess+1);
-    //Reset SM
-    Reset_SM_def_vars(c_mess->N,c_mess->f,c_mess->k,c_mess->num_cc_replicas, c_mess->num_cc,c_mess->num_dc);
-    Reset_SM_Replicas(c_mess->tpm_based_id,c_mess->replica_flag,c_mess->spines_ext_addresses,c_mess->spines_int_addresses);
-    printf("Reconf done \n");
-}
-
 int usage_check(int ac);
 int parse_args(int ac, char **av);
 int send_to_data_collector(signed_message *msg, int nbytes, int stream);
 void setup_connection_to_data_collector();
+void setup_ipc_with_shadow_io();
+void send_to_shadow(signed_message *msg, int nbytes);
 
 // conver string to protocol enum
 int string_to_protocol(char * prot) {
@@ -313,28 +293,57 @@ int main(int argc, char *argv[])
     
     ///////////////////////////
     if (shadow_isinsystem == 1) {
-        // Setup IPC for the RTU Proxy main thread
-        printf("PROXY: Setting up IPC for RTU proxy thread (For Shadow)\n");
-        memset(&shadow_itrc_main, 0, sizeof(itrc_data));
-        sprintf(shadow_itrc_main.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-        sprintf(shadow_itrc_main.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        sprintf(shadow_itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
-        sprintf(shadow_itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
-        shadow_ipc_sock = IPC_DGram_Sock(shadow_itrc_main.ipc_local);
+        // // Setup IPC for the RTU Proxy main thread
+        // printf("PROXY: Setting up IPC for RTU proxy thread (For Shadow)\n");
+        // memset(&shadow_itrc_main, 0, sizeof(itrc_data));
+        // sprintf(shadow_itrc_main.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
+        // sprintf(shadow_itrc_main.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
+        // sprintf(shadow_itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
+        // sprintf(shadow_itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
+        // shadow_ipc_sock = IPC_DGram_Sock(shadow_itrc_main.ipc_local);
 
-        // Setup IPC for the Worker Thread (running the ITRC Client)
-        memset(&shadow_itrc_thread, 0, sizeof(itrc_data));
-        sprintf(shadow_itrc_thread.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-        sprintf(shadow_itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        sprintf(shadow_itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
-        sprintf(shadow_itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
-        // ip_ptr = strtok(argv[2], ":");
-        ip_ptr = shadow_spinesd_ip_addr; // TODO: do i need a diff ip_ptr for shadow?
-        sprintf(shadow_itrc_thread.spines_ext_addr, "%s", ip_ptr);
-        // ip_ptr = strtok(NULL, ":");
-        sprintf(ip_ptr, "%d", shadow_spinesd_port); // essentially equal to ip_ptr = to_char_ptr(shadow_spinesd_port);
-        sscanf(ip_ptr, "%d", &shadow_itrc_thread.spines_ext_port);
+        // // Setup IPC for the Worker Thread (running the ITRC Client)
+        // memset(&shadow_itrc_thread, 0, sizeof(itrc_data));
+        // sprintf(shadow_itrc_thread.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
+        // sprintf(shadow_itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
+        // sprintf(shadow_itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
+        // sprintf(shadow_itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
+        // // ip_ptr = strtok(argv[2], ":");
+        // ip_ptr = shadow_spinesd_ip_addr; // TODO: do i need a diff ip_ptr for shadow?
+        // sprintf(shadow_itrc_thread.spines_ext_addr, "%s", ip_ptr);
+        // // ip_ptr = strtok(NULL, ":");
+        // sprintf(ip_ptr, "%d", shadow_spinesd_port); // essentially equal to ip_ptr = to_char_ptr(shadow_spinesd_port);
+        // sscanf(ip_ptr, "%d", &shadow_itrc_thread.spines_ext_port);
         
+        /* Start shadow_io proc */
+        printf("Starting shadow_io proc\n");
+        setup_ipc_with_shadow_io();
+        pid_t pid;
+        //child -- run program on path
+        // char * arg_shadow_ipaddr;
+        // sprintf(arg_shadow_ipaddr, "%s", shadow_spinesd_ip_addr); // essentially equal to arg_shadow_ipaddr = shadow_spinesd_ip_addr.c_str()
+        char arg_shadow_port[5]; // since the largest possible port is 65,535. size = 5 should be sufficient
+        sprintf(arg_shadow_port, "%d", shadow_spinesd_port);
+        // char * arg_shadow_dir;
+        // sprintf(arg_shadow_dir, "%s", shadow_spire_dir);
+        char arg_my_id[4]; // My_ID is a small number. lets say max possible is 1000. that requires size 4. TODO: is this fine?
+        sprintf(arg_my_id, "%d", My_ID);
+        // by convention, arg 0 is prog name, and the whole array is required to be NULL terminated by exev fn
+        // char* args_for_shadow_io[6] = {shadow_io_path, arg_shadow_ipaddr, arg_shadow_port, arg_shadow_dir, arg_my_id, NULL};
+        char* args_for_shadow_io[6] = {shadow_io_path, shadow_spinesd_ip_addr, arg_shadow_port, shadow_spire_dir, arg_my_id, NULL};
+        if ((pid = fork()) < 0) { // error case
+            printf("Error: fork returned pid < 0\n");
+            exit(1);
+        }
+        else if(pid == 0) { 
+            // only child proc will run this. parent moves to the very next line after the end of 'if (shadow_isinsystem)' if statement
+            printf("The child proc's pid is: %d\n", getpid());
+            if (execv(shadow_io_path, &args_for_shadow_io[0]) < 0) {
+                printf("error starting shadow_io. errorno = %d\n", errno);
+                exit(1); // exit child
+            }
+        } 
+        // no need to separately make a thread to listen for updates from shadow_io. that itrc handler checks for that
     }
 
     ///////////////////////////
@@ -356,9 +365,10 @@ int main(int argc, char *argv[])
 
 
     if (shadow_isinsystem == 1) {
-        printf("PROXY: Setting up ITRC Client thread (For Shadow)\n");
-        pthread_create(&shadow_itrc_thread_tid, NULL, &ITRC_Client, (void *)&shadow_itrc_thread);
-        FD_SET(shadow_ipc_sock, &mask); // shadow
+        // printf("PROXY: Setting up ITRC Client thread (For Shadow)\n");
+        // pthread_create(&shadow_itrc_thread_tid, NULL, &ITRC_Client, (void *)&shadow_itrc_thread);
+        // FD_SET(shadow_ipc_sock, &mask); // shadow
+        FD_SET(ipc_sock_from_shadowio_child, &mask); // shadow
     }
 
     while (1) {
@@ -424,11 +434,13 @@ int main(int argc, char *argv[])
             
             if (shadow_isinsystem == 1) {
                 /* Message from ITRC (Shadow) */
-                if (FD_ISSET(shadow_ipc_sock, &tmask)) {
+                // if (FD_ISSET(shadow_ipc_sock, &tmask)) {
+                if (FD_ISSET(ipc_sock_from_shadowio_child, &tmask)) {
                     int in_list;
                     int channel;
                     int rtu_dst;
-                    ret = IPC_Recv(shadow_ipc_sock, buff, MAX_LEN);
+                    // ret = IPC_Recv(shadow_ipc_sock, buff, MAX_LEN);
+                    ret = IPC_Recv(ipc_sock_from_shadowio_child, buff, MAX_LEN);
                     if (ret <= 0) {
                         printf("Error in IPC_Recv (for shadow): ret = %d, dropping!\n", ret);
                         continue;
@@ -477,14 +489,7 @@ int main(int argc, char *argv[])
                     // send to shadow (if it is in the system)
                     if (shadow_isinsystem == 1) {
                         printf("PROXY: message from plc, sending data to sm (shadow) \n");
-                        ret = IPC_Send(shadow_ipc_sock, (void *)buff, nBytes, shadow_itrc_main.ipc_remote);
-                        if(ret!=nBytes){
-                            printf("PROXY: error sending to SM (shadow). ret = ");
-                        }
-                        else {
-                            printf("message sent successfully. ret = ");
-                        }
-                        printf("%d\n", ret);
+                        send_to_shadow(mess, nBytes);
                     }
 
                     // send to data collector (if it is in the system)
@@ -507,6 +512,34 @@ int main(int argc, char *argv[])
     }
     pthread_exit(NULL);
     return 0;
+}
+
+void Process_Config_Msg(signed_message * conf_mess,int mess_size) {
+    config_message *c_mess;
+
+    if (mess_size!= sizeof(signed_message)+sizeof(config_message)){
+        printf("Config message is %d ,not expected size of %d\n",mess_size, sizeof(signed_message)+sizeof(config_message));
+        return;
+    }
+
+    if(!OPENSSL_RSA_Verify((unsigned char*)conf_mess+SIGNATURE_SIZE,
+                sizeof(signed_message)+conf_mess->len-SIGNATURE_SIZE,
+                (unsigned char*)conf_mess,conf_mess->machine_id,RSA_CONFIG_MNGR)){
+        printf("Benchmark: Config message signature verification failed\n");
+
+        return;
+    }
+    printf("Verified Config Message\n");
+    if(conf_mess->global_configuration_number<=My_Global_Configuration_Number){
+        printf("Got config=%u and I am already in %u config\n",conf_mess->global_configuration_number,My_Global_Configuration_Number);
+        return;
+    }
+    My_Global_Configuration_Number=conf_mess->global_configuration_number;
+    c_mess=(config_message *)(conf_mess+1);
+    //Reset SM
+    Reset_SM_def_vars(c_mess->N,c_mess->f,c_mess->k,c_mess->num_cc_replicas, c_mess->num_cc,c_mess->num_dc);
+    Reset_SM_Replicas(c_mess->tpm_based_id,c_mess->replica_flag,c_mess->spines_ext_addresses,c_mess->spines_int_addresses);
+    printf("Reconf done \n");
 }
 
 int usage_check(int ac) {
@@ -593,4 +626,23 @@ void setup_connection_to_data_collector() {
     dc_dest.sin_family = AF_INET;
     dc_dest.sin_port = htons(dc_spinesd_port);
     dc_dest.sin_addr.s_addr = inet_addr(dc_spinesd_ip_addr);
+}
+
+void setup_ipc_with_shadow_io() {
+    // shadow_io is the child:
+    ipc_sock_to_shadowio_child = IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
+    ipc_sock_from_shadowio_child = IPC_DGram_Sock(IPC_FROM_SHADOWIO_CHILD); // for receiving something FROM the parent
+}
+
+void send_to_shadow(signed_message *msg, int nbytes) {
+    // sends to the shadow itrc via the child processor shadow_io
+    int ret;
+    ret = IPC_Send(ipc_sock_to_shadowio_child, (void *)msg, nbytes, IPC_TO_SHADOWIO_CHILD);
+    if(ret != nbytes){
+        printf("PROXY: error sending to SM (shadow). ret = ");
+    }
+    else {
+        printf("message sent successfully. ret = ");
+    }
+    printf("%d\n", ret);
 }

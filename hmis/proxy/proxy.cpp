@@ -97,12 +97,15 @@ int main(int ac, char **av) {
     setup_ipc_for_hmi();
     itrc_init(spinesd_ip_addr, spinesd_port);
     
+    if (shadow_isinsystem) {
+        setup_ipc_with_shadow_io();
+    }
+
     if (data_collector_isinsystem) {
         setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
     }
 
     pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
-
     pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
     pthread_create(&itrc_thread, NULL, &ns_main::ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
@@ -114,13 +117,9 @@ int main(int ac, char **av) {
         printf("Starting shadow_io proc\n");
         pid_t pid;
         //child -- run program on path
-        char * arg_shadow_ipaddr;
-        sprintf(arg_shadow_ipaddr, "%s", shadow_spinesd_ip_addr.c_str()); // essentially equal to arg_shadow_ipaddr = shadow_spinesd_ip_addr.c_str()
-        char * arg_shadow_port;
-        sprintf(arg_shadow_port, "%d", shadow_spinesd_port);
-        char * arg_shadow_dir;
-        sprintf(arg_shadow_dir, "%s", shadow_spire_dir.c_str());
-        char* args_for_shadow_io[3] = {arg_shadow_ipaddr, arg_shadow_port, arg_shadow_dir};
+        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
+        char* child_proc_cmd[5] = {const_cast<char*>(shadow_io_path.c_str()), const_cast<char*>(shadow_spinesd_ip_addr.c_str()), const_cast<char*>(std::to_string(shadow_spinesd_port).c_str()), const_cast<char*>(shadow_spire_dir.c_str()), NULL};
+
         if ((pid = fork()) < 0) { // error case
             std::cout << "Error: fork returned pid < 0\n";
             exit(1);
@@ -128,21 +127,22 @@ int main(int ac, char **av) {
         else if(pid == 0) { 
             // only child proc will run this. parent moves to the very next line after the end of 'if (shadow_isinsystem)' if statement
             printf("The child proc's pid is: %d\n", getpid());
-            // if (execv(shadow_io_path.c_str(), NULL) < 0) {
-            if (execv(shadow_io_path.c_str(), &args_for_shadow_io[0]) < 0) {
-                std::cout << "error starting shadow_io\n";
+            if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
+                std::cout << "error starting shadow_io. errorno = "<< errno << "\n";
                 exit(1); // exit child
             }
-        } 
-        // no need to separately make a thread to listen for updates from shadow_io. that itrc handler checks for that
+        }
+        // no need to separately make a thread to listen for updates from shadow_io. the itrc handler checks for that
     }
 
     pthread_join(hmi_listen_thread, NULL);
     pthread_join(itrc_thread, NULL);
     pthread_join(handle_msg_from_itrc_thread, NULL);
+    
     // if (shadow_isinsystem) {
     //     pthread_join(shadow_itrc_thread, NULL);
     // }
+    
     return 0;
 }
 
@@ -271,39 +271,39 @@ void *handler_msg_from_itrc(void *arg)
     
     std::cout << "initialized handler_msg_from_itrc() \n";
 
-    // E_init();
-    // E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
-    // if (shadow_isinsystem){
-    //     E_attach_fd(shadow_ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
-    // }
-    // E_handle_events();
+    ns_main::E_init();
+    ns_main::E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
+    if (shadow_isinsystem){
+        ns_main::E_attach_fd(ipc_sock_from_child, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the shadow (via shadow_io child proc)
+    }
+    ns_main::E_handle_events();
 
-    fd_set active_fd_set, read_fd_set;
-    int num;
-    // Init data structures for select()
-    FD_ZERO(&active_fd_set);
-    FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
-    if (shadow_isinsystem) {
-        // FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
-        FD_SET(ipc_sock_from_child, &active_fd_set);
-    }
-    while(1) {
-        read_fd_set = active_fd_set;
-        num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
-        if (num > 0) {
-            if(FD_ISSET(ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
-                recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
-            }
-            if (shadow_isinsystem) {
-                // if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
-                //     recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
-                // }
-                if(FD_ISSET(ipc_sock_from_child, &read_fd_set)) { // if there is a message from itrc client (shadow)
-                    recv_then_fw_to_hmi_and_dc(ipc_sock_from_child, 1, NULL);
-                }
-            }
-        }
-    }
+    // fd_set active_fd_set, read_fd_set;
+    // int num;
+    // // Init data structures for select()
+    // FD_ZERO(&active_fd_set);
+    // FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
+    // if (shadow_isinsystem) {
+    //     // FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
+    //     FD_SET(ipc_sock_from_child, &active_fd_set);
+    // }
+    // while(1) {
+    //     read_fd_set = active_fd_set;
+    //     num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
+    //     if (num > 0) {
+    //         if(FD_ISSET(ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
+    //             recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
+    //         }
+    //         if (shadow_isinsystem) {
+    //             // if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
+    //             //     recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
+    //             // }
+    //             if(FD_ISSET(ipc_sock_from_child, &read_fd_set)) { // if there is a message from itrc client (shadow)
+    //                 recv_then_fw_to_hmi_and_dc(ipc_sock_from_child, 1, NULL);
+    //             }
+    //         }
+    //     }
+    // }
 
     return NULL;
 }
