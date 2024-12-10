@@ -1,4 +1,4 @@
-SHADOW_SPIRE  = ../../../shadow-spire
+SHADOW_SPIRE  = ../../../shadow-spire # can override when running make like: make SHADOW_SPIRE=/path/to/shadow
 
 CC            = gcc
 CXX           = g++
