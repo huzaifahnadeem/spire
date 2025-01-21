@@ -434,6 +434,10 @@ void PR_Start_Recovery()
 
     /* Create my new incarnation message that kickstarts the recovery */
     DATA.PR.new_incarnation[VAR.My_Server_ID] = PR_Construct_New_Incarnation_Message();
+    // Conf 1 fix:
+    // added PR_Process_New_Incarnation here and removed the self-send check in PR_Process_New_Incarnation. 
+    // then forced to check message (passed directly into the function -- dont need to store in the data struct.)
+    PR_Process_New_Incarnation(DATA.PR.new_incarnation[VAR.My_Server_ID]);
 
     /* Multicast my new_incarnation message */ 
     SIG_Add_To_Pending_Messages(DATA.PR.new_incarnation[VAR.My_Server_ID], BROADCAST, 
@@ -451,10 +455,11 @@ void PR_Process_New_Incarnation(signed_message *mess)
 
     /* For now, ignore my own new_incarnation messages */
     sender = mess->machine_id;
-    if (sender == VAR.My_Server_ID) {
-        //Alarm(DEBUG, "Ignoring my own new_incarnation message\n");
-        return;
-    }
+    // Conf 1 fix: ignore this for now
+    // if (sender == VAR.My_Server_ID) {
+    //     //Alarm(DEBUG, "Ignoring my own new_incarnation message\n");
+    //     return;
+    // }
 
     /* Grab the specific new_incarnation information */
     ni = (new_incarnation_message *)(mess + 1);
