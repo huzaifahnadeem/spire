@@ -100,7 +100,9 @@ int Verify_Config_msg(signed_message *);
 
 
 int main(int argc, char **argv)
-{
+{   
+    Alarm_set_types(PRINT|STATUS|DEBUG);
+    
     int nbytes, id, i, ret,debug_ret,debug_ret2;
     char buf[MAX_LEN];
     char *ip;

@@ -73,10 +73,11 @@ int main(int argc, char** argv)
 {
   setlinebuf(stdout);
   Usage(argc, argv);
-  Alarm_set_types(NONE);
-  //Alarm_set_types(STATUS);
-  //Alarm_set_types(PRINT);
-  //Alarm_set_types(DEBUG);
+  // Alarm_set_types(NONE);
+  // //Alarm_set_types(STATUS);
+  // //Alarm_set_types(PRINT);
+  // //Alarm_set_types(DEBUG);
+  Alarm_set_types(PRINT|STATUS|DEBUG);
   Alarm_enable_timestamp_high_res(NULL);
 
   Alarm( PRINT, "/===========================================================================\\\n");
