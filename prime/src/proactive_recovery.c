@@ -434,31 +434,28 @@ void PR_Start_Recovery()
 
     /* Create my new incarnation message that kickstarts the recovery */
     DATA.PR.new_incarnation[VAR.My_Server_ID] = PR_Construct_New_Incarnation_Message();
-    // Conf 1 fix:
-    // added PR_Process_New_Incarnation here and removed the self-send check in PR_Process_New_Incarnation. 
-    // then forced to check message (passed directly into the function -- dont need to store in the data struct.)
-    // PR_Process_New_Incarnation(DATA.PR.new_incarnation[VAR.My_Server_ID]);
 
-    if (DATA.PR.reset_vote_count == 2*VAR.F + VAR.K) {
-        /* if (DATA.PR.recovery_status[VAR.My_Server_ID] == PR_STARTUP)
-            DATA.PR.num_startup--;
-        DATA.PR.recovery_status[VAR.My_Server_ID] = PR_RESET; */
+    // potential fix for conf 1 could be something like adding the following:
+    // if (DATA.PR.reset_vote_count == 2*VAR.F + VAR.K) {
+    //     /* if (DATA.PR.recovery_status[VAR.My_Server_ID] == PR_STARTUP)
+    //         DATA.PR.num_startup--;
+    //     DATA.PR.recovery_status[VAR.My_Server_ID] = PR_RESET; */
 
-        /* Enqueue the Rotate leader function in case the current leader doesn't
-         * do its job fast enough to get the system up and running */
-        /* t.sec  = SYSTEM_RESET_TIMEOUT_SEC;
-        t.usec = SYSTEM_RESET_TIMEOUT_USEC;
-        E_queue(PR_Rotate_Reset_Leader, 0, NULL, t); */
+    //     /* Enqueue the Rotate leader function in case the current leader doesn't
+    //      * do its job fast enough to get the system up and running */
+    //     /* t.sec  = SYSTEM_RESET_TIMEOUT_SEC;
+    //     t.usec = SYSTEM_RESET_TIMEOUT_USEC;
+    //     E_queue(PR_Rotate_Reset_Leader, 0, NULL, t); */
 
-        /* Each replica constructs their reset share */
-	Alarm(DEBUG,"Sahiti****: Sending Reset Share as DATA.PR.reset_vote_count=%d,needed=%d\n",DATA.PR.reset_vote_count,2*VAR.F + VAR.K);
-        share = PR_Construct_Reset_Share();
-        SIG_Add_To_Pending_Messages(share, BROADCAST, UTIL_Get_Timeliness(RESET_SHARE));
-        dec_ref_cnt(share);
-    }
-	else{
-	Alarm(DEBUG,"Sahiti****: DATA.PR.reset_vote_count=%d,needed=%d\n",DATA.PR.reset_vote_count,2*VAR.F + VAR.K);
-	}
+    //     /* Each replica constructs their reset share */
+	// Alarm(DEBUG,"Sahiti****: Sending Reset Share as DATA.PR.reset_vote_count=%d,needed=%d\n",DATA.PR.reset_vote_count,2*VAR.F + VAR.K);
+    //     share = PR_Construct_Reset_Share();
+    //     SIG_Add_To_Pending_Messages(share, BROADCAST, UTIL_Get_Timeliness(RESET_SHARE));
+    //     dec_ref_cnt(share);
+    // }
+	// else{
+	// Alarm(DEBUG,"Sahiti****: DATA.PR.reset_vote_count=%d,needed=%d\n",DATA.PR.reset_vote_count,2*VAR.F + VAR.K);
+	// }
 
     /* Multicast my new_incarnation message */ 
     SIG_Add_To_Pending_Messages(DATA.PR.new_incarnation[VAR.My_Server_ID], BROADCAST, 
@@ -476,11 +473,10 @@ void PR_Process_New_Incarnation(signed_message *mess)
 
     /* For now, ignore my own new_incarnation messages */
     sender = mess->machine_id;
-    // Conf 1 fix: ignore this for now
-    // if (sender == VAR.My_Server_ID) {
-    //     //Alarm(DEBUG, "Ignoring my own new_incarnation message\n");
-    //     return;
-    // }
+    if (sender == VAR.My_Server_ID) {
+        //Alarm(DEBUG, "Ignoring my own new_incarnation message\n");
+        return;
+    }
 
     /* Grab the specific new_incarnation information */
     ni = (new_incarnation_message *)(mess + 1);
