@@ -725,6 +725,430 @@ void *ITRC_Prime_Inject(void *data)
     return NULL;
 }
 
+
+// this function shouldnt be used. they are only for testing with a single server as a basline
+void *ITRC_Prime_Inject_conf1(void *data)
+{
+    int num, ret, nBytes;
+    int prime_sock;
+    int16u val;
+    //unsigned int dup_bench[MAX_EMU_RTU];
+    net_sock ns;
+    fd_set mask, tmask;
+    char buff[MAX_LEN], prime_path[128];
+    signed_message *mess, *payload;
+    update_message *up;
+    itrc_data *itrcd;
+
+    int counter;
+    counter = 0;
+
+    /* Make sure everything is set up first */
+    pthread_mutex_lock(&wait_mutex);
+    while (master_ready == 0) {
+        pthread_cond_wait(&wait_condition, &wait_mutex);
+    }
+    pthread_mutex_unlock(&wait_mutex); 
+
+    FD_ZERO(&mask);
+
+    /* Grab IPC info */
+    itrcd = (itrc_data *)data;
+
+    /* Connect to spines external network if CC */
+    if (Type == CC_TYPE) { // conf1 edit: this check is not really needed since conf 1 will have one and only server which is supposed to be of CC_TYPE
+        ns.sp_ext_s = ret = -1;
+        while (ns.sp_ext_s < 0 || ret < 0) {
+
+            ns.sp_ext_s = Spines_Sock(itrcd->spines_ext_addr, itrcd->spines_ext_port,
+                        SPINES_PRIORITY, SM_EXT_BASE_PORT + My_ID);
+            if (ns.sp_ext_s < 0) {
+                sleep(SPINES_CONNECT_SEC);
+                continue;
+            }
+
+            val = 2;
+            ret = spines_setsockopt(ns.sp_ext_s, 0, SPINES_SET_DELIVERY, (void *)&val, sizeof(val));
+            if (ret < 0) {
+                spines_close(ns.sp_ext_s);
+                ns.sp_ext_s = -1;
+                sleep(SPINES_CONNECT_SEC);
+                continue;
+            }
+        }
+        FD_SET(ns.sp_ext_s, &mask);
+    }
+    /*MS2022: Create ipc to receive Config Agent messages*/
+    /*
+    printf("receiving from config agent on %s \n",itrcd->ipc_config);
+    ns.ipc_config_s = IPC_DGram_Sock(itrcd->ipc_config);
+    ret = fcntl(ns.ipc_config_s, F_SETFL, fcntl(ns.ipc_config_s, F_GETFL, 0) | O_NONBLOCK); 
+    if (ret == -1) {
+        printf("Failure setting config agent ipc socket to non-blocking\n");
+        exit(EXIT_FAILURE);
+    }
+    FD_SET(ns.ipc_config_s, &mask);
+    */
+    /* Create a socket to receive state transfer requests from the ITRC_Master
+     *  thread */
+    sprintf(ns.inject_path, "%s%d", (char *)SM_IPC_INJECT, My_Global_ID);
+    ns.inject_s = IPC_DGram_Sock(ns.inject_path);
+    ret = fcntl(ns.inject_s, F_SETFL, fcntl(ns.inject_s, F_GETFL, 0) | O_NONBLOCK); 
+    if (ret == -1) {
+        printf("Failure setting inject socket to non-blocking\n");
+        exit(EXIT_FAILURE);
+    }
+    FD_SET(ns.inject_s, &mask);
+
+    /* Connect to Prime */
+    if (USE_IPC_CLIENT) {
+        // conf1 edit: the orginal path (i.e. the commented out part) sets up the path for sending it to prime
+        // for conf1, we send it directly to ITRC_Master and so the path has to be adjusted
+        // note that we dont have to make any changes to ITRC_Master's IPC comm. set up because
+        // it listens on PRIME_CLIENT_IPC_PATH for messages on prime which is the same path we 
+        // will now use to send messages on.
+        // secondly, ITRC_Master uses PRIME_REPLICA_IPC_PATH to send messages to prime
+        // but it only sends a message directly to prime for OOB reconfig
+        // other messages to prime are handled by this function. so we should be good
+        prime_sock = IPC_DGram_SendOnly_Sock();
+        // sprintf(prime_path, "%s%d", (char *)PRIME_REPLICA_IPC_PATH, My_Global_ID);
+        sprintf(prime_path, "%s%d", (char *)PRIME_CLIENT_IPC_PATH, My_Global_ID);
+    }
+    else {
+        // TODO - resolve TCP connection across 2 threads now. Perhaps create 2 TCP
+        //      connections with Prime (similar to IPC)
+        printf("TCP connections to Prime currenty not supported. Fixing soon!\n");
+        exit(EXIT_FAILURE);
+        /*print_addr.s_addr = My_IP;
+        printf("Connecting to %s:%d\n", inet_ntoa(print_addr), PRIME_PORT + My_ID);
+        prime_sock = clientTCPsock(PRIME_PORT + My_ID, My_IP); */
+    }
+
+    pthread_mutex_lock(&wait_mutex);
+    inject_ready = 1;
+    pthread_cond_signal(&wait_condition);
+    pthread_mutex_unlock(&wait_mutex);
+
+    // conf1 edit: // this may not actually be checked/causing issues to commenting out again
+    // prime sends a PRIME_SYSTEM_RESET (known as CLIENT_SYSTEM_RESET in prime's code) message when it starts
+    // so need to send that to ITRC_Master first
+    // this code is adapted from prime/src/proactive_recovery.c:PR_Send_Application_Reset function and the functions it calls
+    // TODO: free memory from all these pointers
+
+    typedef struct dummy_client_response_message_conf1 {
+        int32u machine_id;
+        int32u incarnation;
+        int32u seq_num;
+        int32u ord_num;
+        int32u event_idx;
+        int32u event_tot;
+        double PO_time;
+    } sys_reset_prime_client_response_message; // for some reason, prime's client_response_message is different from what the client_response_message that is used in this file's function
+
+    signed_update_message reset, *sys_reset_up;
+    signed_message *event, *up_contents;
+    memset(&reset, 0, sizeof(signed_update_message));
+    event = (signed_message *)&reset;
+    sys_reset_up = (signed_update_message *)&reset;
+    up_contents = (signed_message *)(sys_reset_up->update_contents);
+    event->machine_id = 1;
+    event->type = UPDATE;
+    event->incarnation = 1;
+    event->len = sizeof(signed_update_message) - sizeof(signed_message);
+    sys_reset_up->update.server_id = 1;
+    sys_reset_up->header.incarnation = 1; 
+    sys_reset_up->update.seq_num = 0;
+    up_contents->machine_id = 1;
+    up_contents->type = PRIME_SYSTEM_RESET;
+    int32u sys_reset_ord_num = 0;
+    int32u sys_reset_event_idx = 1;
+    int32u sys_reset_event_tot = 1;
+    // signed_update_message *u;
+    // u = (signed_update_message *)event;
+
+    signed_message *sys_reset_client_resp_mess;
+    sys_reset_prime_client_response_message *sys_reset_response_specific;
+    byte *sys_reset_signed_mess_inside_client_resp;
+    int sys_reset_PRIME_MAX_PACKET_SIZE = 32000; // this and the next var are usually set in prime's def file but we usually keep it at these values so for convenience setting and using this var instead of compiling with that def.h file
+    typedef byte sys_reset_packet_body[sys_reset_PRIME_MAX_PACKET_SIZE];
+    sys_reset_client_resp_mess = PKT_Construct_Signed_Message(sizeof(sys_reset_packet_body));
+    sys_reset_response_specific = (sys_reset_prime_client_response_message*)(sys_reset_client_resp_mess + 1);
+    
+    sys_reset_client_resp_mess->machine_id  = 1;
+    sys_reset_client_resp_mess->incarnation = 1;
+    sys_reset_client_resp_mess->type        = CLIENT_RESPONSE;
+    sys_reset_client_resp_mess->len         = sizeof(sys_reset_prime_client_response_message) + UPDATE_SIZE;
+    
+    signed_update_message *sys_reset_u;
+    sys_reset_u = (signed_update_message *)event; //need some info from inside the packet. this part is adapted from prime/src/order.c:ORDER_Execute_Update function
+
+    sys_reset_response_specific->machine_id   = event->machine_id;
+    sys_reset_response_specific->incarnation  = sys_reset_u->header.incarnation;
+    sys_reset_response_specific->seq_num      = sys_reset_u->update.seq_num;
+    sys_reset_response_specific->ord_num      = sys_reset_ord_num;
+    sys_reset_response_specific->event_idx    = sys_reset_event_idx;
+    sys_reset_response_specific->event_tot    = sys_reset_event_tot;
+    sys_reset_response_specific->PO_time      = 0; 
+    
+    sys_reset_signed_mess_inside_client_resp = (byte *)(sys_reset_response_specific + 1);
+    memcpy(sys_reset_signed_mess_inside_client_resp, sys_reset_u->update_contents, UPDATE_SIZE);
+    
+    // this is the body of prime/src/merkle.c:MT_Digests_ fn. size_mess's needs this
+    int32u sys_reset_MT_Digests_val;
+    if ( sys_reset_client_resp_mess->mt_num <= 1 )  sys_reset_MT_Digests_val = 0;
+    else if ( sys_reset_client_resp_mess->mt_num <= 2 )  sys_reset_MT_Digests_val = 1;
+    else if ( sys_reset_client_resp_mess->mt_num <= 4 )  sys_reset_MT_Digests_val = 2;
+    else if ( sys_reset_client_resp_mess->mt_num <= 8 )  sys_reset_MT_Digests_val = 3;
+    else if ( sys_reset_client_resp_mess->mt_num <= 16 ) sys_reset_MT_Digests_val = 4;
+    else if ( sys_reset_client_resp_mess->mt_num <= 32 ) sys_reset_MT_Digests_val = 5;
+    else if ( sys_reset_client_resp_mess->mt_num <= 64 ) sys_reset_MT_Digests_val = 6;
+    else if ( sys_reset_client_resp_mess->mt_num <= 128) sys_reset_MT_Digests_val = 7; 
+    else if ( sys_reset_client_resp_mess->mt_num <= 256) sys_reset_MT_Digests_val = 8;
+    int32u sys_reset_size_mess = (sizeof(signed_message) + sys_reset_client_resp_mess->len + sys_reset_MT_Digests_val * DIGEST_SIZE); // this is the body of prime/src/utility.c:UTIL_Message_Size fn
+
+    int sys_reset_ret;
+    sys_reset_ret = IPC_Send(prime_sock, sys_reset_client_resp_mess, sys_reset_size_mess, prime_path);
+
+    if(sys_reset_ret <= 0) {
+        perror("ITRC_Prime_Inject: Prime Writing error. Conf 1 -- was trying to send a PRIME_SYSTEM_RESET message to ITRC_Master");
+    }
+
+    while (1) {
+
+        tmask = mask;
+        num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
+
+        if (num > 0) {
+
+            /* Incoming NET message External spines network */
+            if (Type == CC_TYPE && ns.sp_ext_s >= 0 && FD_ISSET(ns.sp_ext_s, &tmask)) {
+                nBytes = spines_recvfrom(ns.sp_ext_s, buff, MAX_LEN, 0, NULL, 0);
+                if (nBytes <= 0) {
+                    printf("Disconnected from Spines?\n");
+                    FD_CLR(ns.sp_ext_s, &mask);
+                    spines_close(ns.sp_ext_s);
+                    /* Reconnect to spines external network if CC */
+                    ns.sp_ext_s = ret = -1;
+                    while (ns.sp_ext_s < 0 || ret < 0) {
+                        printf("Prime_Inject: Trying to reconnect to external spines\n");
+                        ns.sp_ext_s = Spines_Sock(itrcd->spines_ext_addr, itrcd->spines_ext_port,
+                                    SPINES_PRIORITY, SM_EXT_BASE_PORT + My_ID);
+                        if (ns.sp_ext_s < 0) {
+                            sleep(SPINES_CONNECT_SEC);
+                            continue;
+                        }
+
+                        val = 2;
+                        ret = spines_setsockopt(ns.sp_ext_s, 0, SPINES_SET_DELIVERY, (void *)&val, sizeof(val));
+                        if (ret < 0) {
+                            spines_close(ns.sp_ext_s);
+                            ns.sp_ext_s = -1;
+                            sleep(SPINES_CONNECT_SEC);
+                            continue;
+                        }
+                    }
+                    FD_SET(ns.sp_ext_s, &mask);
+                    printf("Prime Inject: Connected to ext spines\n");
+                    continue;
+                }
+
+                /* VERIFY Client signature on message */
+                mess = (signed_message *)buff;
+
+                /* Validate Message */
+                if (!ITRC_Valid_Type(mess, FROM_EXTERNAL)) {
+                    printf("Prime_Inject: invalid message type (%d) from client\n", mess->type);
+                    continue;
+                }
+
+                    //printf("Prime_Inject: valid message type (%d) from client\n", mess->type);
+                ret = OPENSSL_RSA_Verify((unsigned char*)mess + SIGNATURE_SIZE,
+                            sizeof(signed_message) + mess->len - SIGNATURE_SIZE,
+                            (unsigned char *)mess, mess->machine_id, RSA_CLIENT);
+                if (!ret) {
+                    printf("Prime Inject: RSA_Verify Failed for Client Update from %d with message type (%d)\n", mess->machine_id, mess->type);
+                    continue;
+                }
+
+                // conf1 edit: this is where we send the message to prime for ordering, for conf 1 we bypass this process and send directly to ITRC_Master (path was adjusted earlier)
+                // since we are sending it directly to ITRC_Master, we have to edit the message data struct and make it exactly like how prime makes it before sending it to its client (i.e. ITRC_Master)
+                
+                // this code is adapted from prime/src/utility.c:UTIL_Respond_To_Client function and the functions it calls
+
+                // TODO: free memory from all these pointers
+
+                typedef struct dummy_client_response_message_conf1 {
+                    int32u machine_id;
+                    int32u incarnation;
+                    int32u seq_num;
+                    int32u ord_num;
+                    int32u event_idx;
+                    int32u event_tot;
+                    double PO_time;
+                } prime_client_response_message; // for some reason, prime's client_response_message is different from what the client_response_message that is used in this file's function
+
+                signed_message *client_resp_mess;
+                prime_client_response_message *response_specific;
+                byte *signed_mess_inside_client_resp;
+                int PRIME_MAX_PACKET_SIZE = 32000; // this and the next var are usually set in prime's def file but we usually keep it at these values so for convenience setting and using this var instead of compiling with that def.h file
+                typedef byte packet_body[PRIME_MAX_PACKET_SIZE];
+                client_resp_mess = PKT_Construct_Signed_Message(sizeof(packet_body));
+                response_specific = (prime_client_response_message*)(client_resp_mess + 1);
+                
+                client_resp_mess->machine_id  = 1;
+                client_resp_mess->incarnation = 1;
+                client_resp_mess->type        = CLIENT_RESPONSE;
+                client_resp_mess->len         = sizeof(prime_client_response_message) + UPDATE_SIZE;
+                
+                counter++;
+                signed_update_message *u;
+                u = (signed_update_message *)mess; //need some info from inside the packet. this part is adapted from prime/src/order.c:ORDER_Execute_Update function
+
+                response_specific->machine_id   = mess->machine_id;
+                response_specific->incarnation  = u->header.incarnation;
+                response_specific->seq_num      = u->update.seq_num;
+                response_specific->ord_num      = counter;
+                response_specific->event_idx    = 1;
+                response_specific->event_tot    = 1;
+                response_specific->PO_time      = 0; 
+                
+                signed_mess_inside_client_resp = (byte *)(response_specific + 1);
+                memcpy(signed_mess_inside_client_resp, u->update_contents, UPDATE_SIZE);
+                
+                // this is the body of prime/src/merkle.c:MT_Digests_ fn. size_mess's needs this
+                int32u MT_Digests_val;
+                if ( client_resp_mess->mt_num <= 1 )  MT_Digests_val = 0;
+                else if ( client_resp_mess->mt_num <= 2 )  MT_Digests_val = 1;
+                else if ( client_resp_mess->mt_num <= 4 )  MT_Digests_val = 2;
+                else if ( client_resp_mess->mt_num <= 8 )  MT_Digests_val = 3;
+                else if ( client_resp_mess->mt_num <= 16 ) MT_Digests_val = 4;
+                else if ( client_resp_mess->mt_num <= 32 ) MT_Digests_val = 5;
+                else if ( client_resp_mess->mt_num <= 64 ) MT_Digests_val = 6;
+                else if ( client_resp_mess->mt_num <= 128) MT_Digests_val = 7; 
+                else if ( client_resp_mess->mt_num <= 256) MT_Digests_val = 8;
+                int32u size_mess = (sizeof(signed_message) + client_resp_mess->len + MT_Digests_val * DIGEST_SIZE); // this is the body of prime/src/utility.c:UTIL_Message_Size fn
+
+                /* would get blocked here if Prime stops reading */
+                // ret = IPC_Send(prime_sock, buff, nBytes, prime_path);
+                ret = IPC_Send(prime_sock, client_resp_mess, size_mess, prime_path);
+
+                if(ret <= 0) {
+                    perror("ITRC_Prime_Inject: Prime Writing error");
+                    continue;
+                    /* close(prime_sock);
+                    FD_CLR(prime_sock, &mask); */
+                }
+                //printf("Sent to prime mess type %d from %d\n",mess->type, mess->machine_id);
+            }
+            /*MS2022: Message from Config Agent*/
+            /*
+            if (ns.ipc_config_s>=0 && FD_ISSET(ns.ipc_config_s,&tmask)){
+                nBytes = IPC_Recv(ns.ipc_config_s, buff, sizeof(buff));
+                mess=(signed_message *)buff;
+                ret = IPC_Send(prime_sock, mess, sizeof(signed_message) + mess->len, prime_path);
+                if(ret <= 0) {
+                    perror("ITRC_Prime_Inject: Prime Writing error");
+                    continue;
+                }
+            }
+            */
+
+            /* Message from the ITRC_Master - request for state transfer */
+            if (ns.inject_s >= 0 && FD_ISSET(ns.inject_s, &tmask)) {
+
+                /* As of now, the state transfer request from SM -> Prime only
+                 * happens if the first received ordinal from Prime is ahead
+                 * of what this SM was expecting. In that case, an IPC message
+                 * is sent to this thread to signal Prime. If this is the only
+                 * spot that the request happens in this direction, we should
+                 * really have a message sent in both cases. A "1" represents
+                 * that Prime should be signaled, a "0" represents that we
+                 * are OK, not need for transfer - but in both cases it would
+                 * allow us to cleanup the FD_SET and potentially close down
+                 * this thread (in the DC case) that is no longer needed */
+                
+                /* Currently, just receive all of the message, but its just used
+                 * as a indicator to wake up this thread and construct a state
+                 * transfer request to give to Prime */
+                nBytes = IPC_Recv(ns.inject_s, buff, sizeof(buff));
+                signed_message * test_config=(signed_message *)buff;
+                if (test_config->type == PRIME_OOB_CONFIG_MSG){
+                    printf("Prime Inject, during reconf disconnecting from Spines\n");
+                    spines_close(ns.sp_ext_s);
+                    FD_CLR(ns.sp_ext_s, &mask);
+                    /* Reconnect to spines external network if CC */
+                    ns.sp_ext_s = ret = -1;
+		    //TODO: If not part of config do not connect
+		    config_message *c_mess;
+		    c_mess=(config_message *)test_config;
+                    if(c_mess->tpm_based_id[My_Global_ID-1]==0){
+			//printf("As not part of conf, not connecting to ext spines\n");
+			continue;
+			}
+                    while (ns.sp_ext_s < 0 || ret < 0) {
+			if(Type==DC_TYPE){
+				break;
+				}
+                        printf("Prime_Inject: Trying to reconnect to external spines during reconf\n");
+                        ns.sp_ext_s = Spines_Sock(itrcd->spines_ext_addr, itrcd->spines_ext_port,
+                                    SPINES_PRIORITY, SM_EXT_BASE_PORT + My_ID);
+                        while (ns.sp_ext_s < 0) {
+                            sleep(SPINES_CONNECT_SEC);
+                            ns.sp_ext_s = Spines_Sock(itrcd->spines_ext_addr, itrcd->spines_ext_port,
+                                    SPINES_PRIORITY, SM_EXT_BASE_PORT + My_ID);
+                            //continue;
+                        }
+
+                        val = 2;
+                        ret = spines_setsockopt(ns.sp_ext_s, 0, SPINES_SET_DELIVERY, (void *)&val, sizeof(val));
+                        if (ret < 0) {
+                            spines_close(ns.sp_ext_s);
+                            ns.sp_ext_s = -1;
+                            sleep(SPINES_CONNECT_SEC);
+                            continue;
+                        }
+                    	FD_SET(ns.sp_ext_s, &mask);
+                    	printf("Prime Inject reconnected to ext spines\n");
+                    	continue;
+                    	}
+                    }
+                /* Construct the state transfer update. Note: details get filled
+                 * in later by my Prime replica */
+                mess = PKT_Construct_Signed_Message(sizeof(signed_update_message) 
+                            - sizeof(signed_message));
+                mess->machine_id = My_ID;
+                mess->len = sizeof(signed_update_message) - sizeof(signed_message);
+                mess->type = UPDATE;
+                up = (update_message *)(mess + 1);
+                up->server_id = My_ID;
+                payload = (signed_message *)(up + 1);
+                payload->machine_id = My_ID;
+                payload->type = PRIME_STATE_TRANSFER;
+                //printf("Sending down STATE TRANSFER request!\n");
+
+                /* SIGN Message */
+                OPENSSL_RSA_Sign( ((byte*)mess) + SIGNATURE_SIZE,
+                        sizeof(signed_message) + mess->len - SIGNATURE_SIZE,
+                        (byte*)mess );
+
+                /* would get blocked here if Prime stops reading */
+                ret = IPC_Send(prime_sock, mess, sizeof(signed_message) + mess->len, prime_path);
+                if(ret <= 0) {
+                    perror("ITRC_Prime_Inject: Prime Writing error");
+                    continue;
+                }
+                free(mess);
+                //FD_CLR(ns.inject_s, &mask);
+                //close(ns.inject_s);
+                //ns.inject_s = -1;
+                //memset(ns.inject_path, 0, sizeof(ns.inject_path));
+            }//ns_inject_s
+        }//if num >0
+    }//while
+
+    return NULL;
+}
+
 void ITRC_Reset_Master_Data_Structures(int startup)
 {
     int32u i;

@@ -81,6 +81,17 @@ CONF_GEN_KEYS_OBJ = conf_generate_keys.o \
                ../common/conf_openssl_rsa.o \
                ../common/conf_tc_wrapper.o
 
+SM_OBJ_CONF1=scada_master_conf1.o \
+		queue.o \
+		../common/scada_packets.o \
+        ../common/net_wrapper.o \
+        ../common/openssl_rsa.o \
+        ../common/tc_wrapper.o \
+        ../common/itrc.o \
+		../common/key_value.o \
+		../config/cJSON.o \
+		../config/config_helpers.o
+
 all: scada_master gen_keys conf_scada_master conf_gen_keys
 
 spire: scada_master gen_keys
@@ -116,6 +127,9 @@ conf_generate_keys.o: conf_generate_keys.c ../common/conf_itrc.h ../common/conf_
 
 conf_gen_keys: $(CONF_GEN_KEYS_OBJ)
 	$(CC) $(LDFLAGS) -o conf_gen_keys $(CONF_GEN_KEYS_OBJ) $(LIBSPREAD_UTIL) $(TC_LIB) -lcrypto -ldl -lpthread -lrt
+
+scada_master_conf1: $(SM_OBJ_CONF1)
+	$(CC) $(LDFLAGS) -o scada_master $(SM_OBJ_CONF1) $(TC_LIB) $(LIBSPREAD_UTIL) $(SPINES_LIB) -lpthread -ldl -lcrypto -lm -lrt
 
 %.o:	%.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(INC) -c -o $*.o $*.c

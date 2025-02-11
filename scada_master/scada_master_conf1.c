@@ -98,9 +98,9 @@ void apply_state(signed_message *);
 void print_state();
 int Verify_Config_msg(signed_message *);
 
-
 int main(int argc, char **argv)
 {   
+    // Alarm_set_types(PRINT | STATUS | DEBUG);
     
     int nbytes, id, i, ret,debug_ret,debug_ret2;
     char buf[MAX_LEN];
@@ -118,7 +118,7 @@ int main(int argc, char **argv)
 
     Usage(argc, argv);
 
-    printf("INIT\n");
+    printf("INIT -- SM for Conf 1 \n");
     init();
 
     // NET Setup
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
     // control-center replicas). Only control-center replicas introduce client
     // (HMI/Proxy) updates, but all replicas can request a state transfer if
     // the first ordinal received is further ahead than what is expected
-    pthread_create(&pi_tid, NULL, &ITRC_Prime_Inject, (void *)&itrc_thread);
+    pthread_create(&pi_tid, NULL, &ITRC_Prime_Inject_conf1, (void *)&itrc_thread);
 
     // Setup the FD_SET
     FD_ZERO(&mask);
