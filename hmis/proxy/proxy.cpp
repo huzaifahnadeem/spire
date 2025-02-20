@@ -15,7 +15,7 @@
 #include <cstring> // for memset
 #include <string>
 
-#include <sys/wait.h> // for forking shadow_io proc
+#include <sys/wait.h> // for forking io_process process
 #include <sys/types.h>
 
 namespace ns_main {
@@ -31,8 +31,8 @@ namespace ns_main {
 
 #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 
-#define IPC_FROM_SHADOWIO_CHILD "/tmp/hmiproxy_ipc_shadowio_to_proxy"
-#define IPC_TO_SHADOWIO_CHILD "/tmp/hmiproxy_ipc_proxy_to_shadowio"
+#define IPC_FROM_IOPROC_CHILD "/tmp/hmiproxy_ipc_ioproc_to_proxy"
+#define IPC_TO_IOPROC_CHILD "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
 // TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
@@ -54,13 +54,10 @@ bool shadow_isinsystem = false;
 int ipc_sock_to_hmi, ipc_sock_from_hmi;
 ns_main::itrc_data mainthread_to_itrcthread_data;
 ns_main::itrc_data itr_client_data;
-// ns_main::itrc_data shadow_mainthread_to_itrcthread_data;
-// ns_main::itrc_data shadow_itr_client_data;
 int ipc_sock_main_to_itrcthread;
-// int shadow_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
-std::string shadow_io_path = "./shadow_io/shadow_io";
+std::string shadow_io_path = "./io_process/io_process";
 int ipc_sock_to_child, ipc_sock_from_child;
 
 // for comm. with data collector:
@@ -76,7 +73,6 @@ void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_hmi_sock(void *arg);
 void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream);
-// void itrc_init_shadow(std::string spinesd_ip_addr, int spinesd_port);
 void setup_ipc_with_shadow_io();
 
 int main(int ac, char **av) {
@@ -91,7 +87,6 @@ int main(int ac, char **av) {
     
     pthread_t hmi_listen_thread;
     pthread_t itrc_thread;
-    // pthread_t shadow_itrc_thread;
     pthread_t handle_msg_from_itrc_thread;
 
     setup_ipc_for_hmi();
@@ -110,11 +105,8 @@ int main(int ac, char **av) {
     pthread_create(&itrc_thread, NULL, &ns_main::ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
     if (shadow_isinsystem) {
-        // itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port);
-        // pthread_create(&shadow_itrc_thread, NULL, &ns_shadow::ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
-        
         /* Start shadow_io proc */
-        printf("Starting shadow_io proc\n");
+        printf("Starting io_process (shadow)\n");
         pid_t pid;
         //child -- run program on path
         // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
@@ -132,7 +124,7 @@ int main(int ac, char **av) {
                 exit(1); // exit child
             }
         }
-        // no need to separately make a thread to listen for updates from shadow_io. the itrc handler checks for that
+        // no need to separately make a thread to listen for updates from shadow_io. the itrc handler checks for that too
     }
 
     pthread_join(hmi_listen_thread, NULL);
@@ -278,33 +270,6 @@ void *handler_msg_from_itrc(void *arg)
     }
     ns_main::E_handle_events();
 
-    // fd_set active_fd_set, read_fd_set;
-    // int num;
-    // // Init data structures for select()
-    // FD_ZERO(&active_fd_set);
-    // FD_SET(ipc_sock_main_to_itrcthread, &active_fd_set);
-    // if (shadow_isinsystem) {
-    //     // FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
-    //     FD_SET(ipc_sock_from_child, &active_fd_set);
-    // }
-    // while(1) {
-    //     read_fd_set = active_fd_set;
-    //     num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
-    //     if (num > 0) {
-    //         if(FD_ISSET(ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
-    //             recv_then_fw_to_hmi_and_dc(ipc_sock_main_to_itrcthread, 0, NULL);
-    //         }
-    //         if (shadow_isinsystem) {
-    //             // if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (shadow)
-    //             //     recv_then_fw_to_hmi_and_dc(shadow_ipc_sock_main_to_itrcthread, 1, NULL);
-    //             // }
-    //             if(FD_ISSET(ipc_sock_from_child, &read_fd_set)) { // if there is a message from itrc client (shadow)
-    //                 recv_then_fw_to_hmi_and_dc(ipc_sock_from_child, 1, NULL);
-    //             }
-    //         }
-    //     }
-    // }
-
     return NULL;
 }
 
@@ -336,8 +301,7 @@ void *listen_on_hmi_sock(void *arg){
                 send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
             }
             if (shadow_isinsystem) {
-                // ret = ns_main::IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
-                ret = ns_main::IPC_Send(ipc_sock_to_child, (void *)mess, nbytes, IPC_TO_SHADOWIO_CHILD);
+                ret = ns_main::IPC_Send(ipc_sock_to_child, (void *)mess, nbytes, IPC_TO_IOPROC_CHILD);
                 if (ret < 0) {
                     std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
                 }
@@ -412,5 +376,5 @@ void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
 void setup_ipc_with_shadow_io() {
     // shadow_io is the child:
     ipc_sock_to_child = ns_main::IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
-    ipc_sock_from_child = ns_main::IPC_DGram_Sock(IPC_FROM_SHADOWIO_CHILD); // for receiving something FROM the parent
+    ipc_sock_from_child = ns_main::IPC_DGram_Sock(IPC_FROM_IOPROC_CHILD); // for receiving something FROM the parent
 }

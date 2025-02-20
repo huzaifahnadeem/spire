@@ -31,36 +31,36 @@ namespace system_ns {
 #define IPC_TO_PARENT "/tmp/hmiproxy_ipc_ioproc_to_proxy"
 #define IPC_FROM_PARENT "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
-void parse_args(int ac, char **av, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port, std::string &shadow_spire_dir);
-void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port, std::string shadow_spire_dir);
+void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port, std::string &ioproc_spire_dir);
+void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port, std::string ioproc_spire_dir);
 void setup_ipc_with_parent();
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_parent_sock(void *arg);
 
-int shadow_ipc_sock_main_to_itrcthread;
+int ioproc_ipc_sock_main_to_itrcthread;
 unsigned int Seq_Num;
 int ipc_sock_to_parent, ipc_sock_from_parent;
-system_ns::itrc_data shadow_mainthread_to_itrcthread_data, shadow_itr_client_data;
+system_ns::itrc_data ioproc_mainthread_to_itrcthread_data, ioproc_itr_client_data;
 
 int main(int ac, char **av) {
-    std::cout << "shadow_io starts \n";
+    std::cout << "io_process starts \n";
     // this kills this process if the parent gets a SIGHUP:
     prctl(PR_SET_PDEATHSIG, SIGHUP); // TODO: this might not be the best way to do this. check the second answer in the following (answer by Schof): https://stackoverflow.com/questions/284325/how-to-make-child-process-die-after-parent-exits/17589555
     
-    std::string shadow_spinesd_ip_addr;
-    int shadow_spinesd_port;
-    std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
+    std::string ioproc_spinesd_ip_addr;
+    int ioproc_spinesd_port;
+    std::string ioproc_spire_dir = "./"; // if the user doesn't provide the ioproc spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and ioproc since the ioproc is supposed to the exact same version of the code just compiled with different config files).
 
-    parse_args(ac, av, shadow_spinesd_ip_addr, shadow_spinesd_port, shadow_spire_dir);
+    parse_args(ac, av, ioproc_spinesd_ip_addr, ioproc_spinesd_port, ioproc_spire_dir);
     setup_ipc_with_parent();
     
     pthread_t parent_listen_thread, itrc_thread, handle_msg_from_itrc_thread;
     
-    itrc_init_shadow(shadow_spinesd_ip_addr, shadow_spinesd_port, shadow_spire_dir);
+    itrc_init_ioproc(ioproc_spinesd_ip_addr, ioproc_spinesd_port, ioproc_spire_dir);
 
-    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (shadow)
+    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (ioproc)
     pthread_create(&parent_listen_thread, NULL, &listen_on_parent_sock, NULL); // listens for command messages coming from the parent proc
-    pthread_create(&itrc_thread, NULL, &system_ns::ITRC_Client, (void *)&shadow_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
+    pthread_create(&itrc_thread, NULL, &system_ns::ITRC_Client, (void *)&ioproc_itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
     
     pthread_join(handle_msg_from_itrc_thread, NULL);
     pthread_join(parent_listen_thread, NULL);
@@ -69,16 +69,16 @@ int main(int ac, char **av) {
     return 0;
 }
 
-void parse_args(int ac, char **av, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port, std::string &shadow_spire_dir) {
+void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port, std::string &ioproc_spire_dir) {
     if (ac != 4) {
         printf("Invalid args\n");
-        printf("Usage: ./shadow_io spinesIPAddr spinesPort shadowSpireDirectoryBase\n");
+        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort SpireDirectoryBase\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
-    shadow_spinesd_ip_addr = av[1];
-    shadow_spinesd_port = atoi(av[2]);
-    shadow_spire_dir = av[3];
+    ioproc_spinesd_ip_addr = av[1];
+    ioproc_spinesd_port = atoi(av[2]);
+    ioproc_spire_dir = av[3];
 }
 
 void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
@@ -115,16 +115,16 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_d
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
 }
 
-void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_port, std::string shadow_spire_dir) {
-    _itrc_init( shadow_spinesd_ip_addr, 
-                shadow_spinesd_port, 
-                shadow_mainthread_to_itrcthread_data, 
-                shadow_itr_client_data, 
-                shadow_ipc_sock_main_to_itrcthread, 
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
-                shadow_spire_dir == "./" ? shadow_spire_dir + HMI_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + HMI_SM_KEYS, 
-                HMIPROXY_IPC_MAIN_SHADOW, 
-                HMIPROXY_IPC_ITRC_SHADOW ); 
+void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port, std::string ioproc_spire_dir) {
+    _itrc_init( ioproc_spinesd_ip_addr, 
+                ioproc_spinesd_port, 
+                ioproc_mainthread_to_itrcthread_data, 
+                ioproc_itr_client_data, 
+                ioproc_ipc_sock_main_to_itrcthread, 
+                ioproc_spire_dir == "./" ? ioproc_spire_dir + HMI_PRIME_KEYS : ioproc_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
+                ioproc_spire_dir == "./" ? ioproc_spire_dir + HMI_SM_KEYS : ioproc_spire_dir + "/hmis/proxy/" + HMI_SM_KEYS, 
+                HMIPROXY_IPC_MAIN_ioproc, 
+                HMIPROXY_IPC_ITRC_ioproc ); 
 
     // TODO: ? system_ns::HMI_SM_KEYS ?
 }
@@ -144,37 +144,37 @@ void recv_then_fw_to_parent(int s, void *dummy1, void *dummy2) // called by hand
     UNUSED(dummy1);
     UNUSED(dummy2);
 
-    std::cout << "shadow_io: recv_then_fw_to_parent():\n";
+    std::cout << "io_process: recv_then_fw_to_parent():\n";
 
     // Receive from ITRC Client:
-    std::cout << "shadow_io: There is a message from the ITRC Client (shadow) \n";
+    std::cout << "io_process: There is a message from the ITRC Client (ioproc) \n";
     ret = system_ns::IPC_Recv(s, buf, MAX_LEN);
-    if (ret < 0) printf("shadow_io: recv_msg_from_itrc(): IPC_Rev failed\n");
+    if (ret < 0) printf("io_process: recv_msg_from_itrc(): IPC_Rev failed\n");
     mess = (system_ns::signed_message *)buf;
     nbytes = sizeof(system_ns::signed_message) + mess->len;
     // Forward to parent:
     system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, IPC_TO_PARENT);
-    std::cout << "shadow_io: The message has been forwarded to the parent proc.\n";
+    std::cout << "io_process: The message has been forwarded to the parent proc.\n";
 }
 
 void *handler_msg_from_itrc(void *arg)
 {   
     UNUSED(arg);
     
-    std::cout << "shadow_io: initialized handler_msg_from_itrc() \n";
+    std::cout << "io_process: initialized handler_msg_from_itrc() \n";
 
     fd_set active_fd_set, read_fd_set;
     int num;
     // Init data structures for select()
     FD_ZERO(&active_fd_set);
-    FD_SET(shadow_ipc_sock_main_to_itrcthread, &active_fd_set);
+    FD_SET(ioproc_ipc_sock_main_to_itrcthread, &active_fd_set);
     
     while(1) {
         read_fd_set = active_fd_set;
         num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
         if (num > 0) {
-            if(FD_ISSET(shadow_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
-                recv_then_fw_to_parent(shadow_ipc_sock_main_to_itrcthread, 0, NULL);
+            if(FD_ISSET(ioproc_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
+                recv_then_fw_to_parent(ioproc_ipc_sock_main_to_itrcthread, 0, NULL);
             }
         }
     }
@@ -191,20 +191,20 @@ void *listen_on_parent_sock(void *arg) {
     int nbytes;
 
     for (;;) {
-        std::cout << "shadow_io: Waiting to receive something on the parent socket\n";
+        std::cout << "io_process: Waiting to receive something on the parent socket\n";
         ret = system_ns::IPC_Recv(ipc_sock_from_parent, buf, MAX_LEN);
         if (ret < 0) {
-            std::cout << "shadow_io: IPC_Rev failed. ret = " << ret << "\n";
+            std::cout << "io_process: IPC_Rev failed. ret = " << ret << "\n";
         }
         else {
-            std::cout << "shadow_io: Received a message from the parent. ret = " << ret << "\n";
+            std::cout << "io_process: Received a message from the parent. ret = " << ret << "\n";
             mess = (system_ns::signed_message *)buf;
             nbytes = sizeof(system_ns::signed_message) + mess->len;
-            ret = system_ns::IPC_Send(shadow_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, shadow_mainthread_to_itrcthread_data.ipc_remote);
+            ret = system_ns::IPC_Send(ioproc_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, ioproc_mainthread_to_itrcthread_data.ipc_remote);
             if (ret < 0) {
-                std::cout << "shadow_io: Failed to sent message to the IRTC thread. ret = " << ret << "\n";
+                std::cout << "io_process: Failed to sent message to the IRTC thread. ret = " << ret << "\n";
             }
-            std::cout << "shadow_io: The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
+            std::cout << "io_process: The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
 
         }
     }
