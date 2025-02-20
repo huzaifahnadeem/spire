@@ -111,7 +111,7 @@ pvb/designer/src/Makefile.pvbplugin
 !dnp3/Makefile
 !hmis/Makefile
 !hmis/proxy/Makefile
-!hmis/proxy/shadow_io/Makefile
+!hmis/proxy/**/Makefile
 !hmis/pnnl_hmi_for_proxy/Makefile
 !hmis/ems_hmi/Makefile
 !hmis/heco_3breaker/Makefile
@@ -124,7 +124,7 @@ pvb/designer/src/Makefile.pvbplugin
 !prime/src/Makefile
 !prime/stdutil/Makefile
 !proxy/Makefile
-!proxy/shadow_io/Makefile
+!proxy/**/Makefile
 !scada_master/Makefile
 !spines/stdutil/Makefile
 !relay_emulator/Makefile
