@@ -126,8 +126,8 @@ void itrc_init_shadow(std::string shadow_spinesd_ip_addr, int shadow_spinesd_por
                 shadow_ipc_sock_main_to_itrcthread, 
                 shadow_spire_dir == "./" ? shadow_spire_dir + PROXY_PRIME_KEYS : shadow_spire_dir + "/hmis/proxy/" + PROXY_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
                 shadow_spire_dir == "./" ? shadow_spire_dir + PROXY_SM_KEYS : shadow_spire_dir + "/hmis/proxy/" + PROXY_SM_KEYS, 
-                RTU_IPC_MAIN_SHADOW, 
-                RTU_IPC_ITRC_SHADOW );
+                RTU_IPC_MAIN_IOPROC, 
+                RTU_IPC_ITRC_IOPROC );
     // TODO: ? ns_shadow::PROXY_PRIME_KEYS ?
 }
 

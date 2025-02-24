@@ -31,8 +31,8 @@ namespace system_ns {
 #define IPC_TO_PARENT "/tmp/hmiproxy_ipc_ioproc_to_proxy"
 #define IPC_FROM_PARENT "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
-void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port, std::string &ioproc_spire_dir);
-void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port, std::string ioproc_spire_dir);
+void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port);
+void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port);
 void setup_ipc_with_parent();
 void *handler_msg_from_itrc(void *arg);
 void *listen_on_parent_sock(void *arg);
@@ -49,14 +49,13 @@ int main(int ac, char **av) {
     
     std::string ioproc_spinesd_ip_addr;
     int ioproc_spinesd_port;
-    std::string ioproc_spire_dir = "./"; // if the user doesn't provide the ioproc spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and ioproc since the ioproc is supposed to the exact same version of the code just compiled with different config files).
 
-    parse_args(ac, av, ioproc_spinesd_ip_addr, ioproc_spinesd_port, ioproc_spire_dir);
+    parse_args(ac, av, ioproc_spinesd_ip_addr, ioproc_spinesd_port);
     setup_ipc_with_parent();
     
     pthread_t parent_listen_thread, itrc_thread, handle_msg_from_itrc_thread;
     
-    itrc_init_ioproc(ioproc_spinesd_ip_addr, ioproc_spinesd_port, ioproc_spire_dir);
+    itrc_init_ioproc(ioproc_spinesd_ip_addr, ioproc_spinesd_port);
 
     pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (ioproc)
     pthread_create(&parent_listen_thread, NULL, &listen_on_parent_sock, NULL); // listens for command messages coming from the parent proc
@@ -69,16 +68,15 @@ int main(int ac, char **av) {
     return 0;
 }
 
-void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port, std::string &ioproc_spire_dir) {
-    if (ac != 4) {
+void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port) {
+    if (ac != 3) {
         printf("Invalid args\n");
-        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort SpireDirectoryBase\n");
+        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
     ioproc_spinesd_ip_addr = av[1];
     ioproc_spinesd_port = atoi(av[2]);
-    ioproc_spire_dir = av[3];
 }
 
 void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
@@ -115,18 +113,17 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_d
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
 }
 
-void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port, std::string ioproc_spire_dir) {
+void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port) {
     _itrc_init( ioproc_spinesd_ip_addr, 
                 ioproc_spinesd_port, 
                 ioproc_mainthread_to_itrcthread_data, 
                 ioproc_itr_client_data, 
                 ioproc_ipc_sock_main_to_itrcthread, 
-                ioproc_spire_dir == "./" ? ioproc_spire_dir + HMI_PRIME_KEYS : ioproc_spire_dir + "/hmis/proxy/" + HMI_PRIME_KEYS, // there is nothing complicated going on here. just checking whether or not the user provided a directory and adjusting accordingly
-                ioproc_spire_dir == "./" ? ioproc_spire_dir + HMI_SM_KEYS : ioproc_spire_dir + "/hmis/proxy/" + HMI_SM_KEYS, 
-                HMIPROXY_IPC_MAIN_ioproc, 
-                HMIPROXY_IPC_ITRC_ioproc ); 
+                "../" + HMI_PRIME_KEYS,
+                "../" + HMI_SM_KEYS, 
+                HMIPROXY_IPC_MAIN_IOPROC, 
+                HMIPROXY_IPC_ITRC_IOPROC ); 
 
-    // TODO: ? system_ns::HMI_SM_KEYS ?
 }
 
 void setup_ipc_with_parent() {

@@ -46,6 +46,7 @@ extern "C" {
     #include "common/scada_packets.h" // used for signed_message, etc.
     #include "common/net_wrapper.h" // for IPC_DGram_Sock(), etc
     #include "spines/libspines/spines_lib.h" // for spines functions e.g. spines_sendto()
+    #include "prime/libspread-util/include/spu_events.h" // import libspread. for its event handler functions
 }
 
 // defines:
@@ -99,11 +100,13 @@ data_collector_addr_struct data_collector_addr = {.dc_ip="", .dc_port=-1, .spine
 
 // function declarations:
 void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr);
-void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data);
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem);
 void setup_ipc_for_hmi(sockets_struct &sockets);
 void init_hmi_listen_thread(pthread_t &thread);
 void setup_data_collector_spines_sock();
 void send_to_data_collector(signed_message *msg, int nbytes, int stream);
+void init_io_procs();
+void init_io_proc_message_handlers(pthread_t &message_events_thread);
 
 // function definitions:
 int main(int ac, char **av) {
@@ -120,10 +123,16 @@ int main(int ac, char **av) {
     pthread_t hmi_listen_thread;
     init_hmi_listen_thread(hmi_listen_thread);
 
-    std::cout << "last line (temp). TODO remove this line \n";
-    
+    // initialize and fork the I/O processes:
+    init_io_procs();
+
+    // initialize and set up the threads for the message handler for the messages from the I/O processes:
+    pthread_t io_procs_message_events_thread;
+    init_io_proc_message_handlers(io_procs_message_events_thread);
+
     // wait for the threads before exiting
     pthread_join(hmi_listen_thread, NULL);
+    pthread_join(io_procs_message_events_thread, NULL);
 
     return 0;
 }
@@ -142,25 +151,19 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
     }
     else if (ac == 4) {  
         // running with the main system, the data collector, and shadow system(s).
+        // check the else statement for details on how it is expected to work
         
-        // if you want to run with shadow/twin systems, for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems
-        // This program will expect the first line to be: `num_of_systems active_system_index`. active_system_index starts at 0.
-        // Other lines are to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath
-        // If this arg is provided: 
-        //      A data collector will always be used in this setting. 
-        //      the first arg will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector
-        
-        data_collector_isinsystem = true;
         case_named_pipe =  true;
+        data_collector_isinsystem = false;  // to be determined by reading the named pipe/file. will change to true if have a data collector otherwise keeping it at false
     }
     else {
         std::cout 
         << "Invalid args\n" 
         << "Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [named pipe name or file name to use multiple systems]\n" 
         << "If you want to run with shadow/twin systems: for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems\n" 
-        << "For the named pipe/file, this program will expect the first line to be: `num_of_systems active_system_index`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on.\n" 
+        << "For the named pipe/file, this program will expect the first line to be: `num_of_systems active_system_index` `data_collector_is_in_system`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on. `data_collector_is_in_system` can be set to 0 (false) and 1 (true) to specify whether or not there is going to be a data collector in the system. Note that there is a single space between these two.\n" 
         << "2nd line and onwards are expected to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath\n" 
-        << "If this arg is provided:\n\tA data collector will always be used in this setting.\n\tThe first arg will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector\n";
+        << "If this arg is provided:\n\tIf is is specified that we will have a data collector, then the first argument will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector.\n\tOtherwise, if is is specified that we will NOT have a data collector, then the first two arguments are ignored.\n";
              
         exit(EXIT_FAILURE);
     }
@@ -181,6 +184,11 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
         this_io_proc.spines_port = spinesd_port;
         
         io_process_data.push_back(this_io_proc);
+    }
+
+    if (case_named_pipe) {
+        std::string pipe_name = av[3];
+        read_named_pipe(pipe_name, io_process_data, data_collector_isinsystem);
     }
 
     if (data_collector_isinsystem) {
@@ -207,14 +215,9 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
         data_collector_addr.dc_sockaddr_in.sin_port = htons(data_collector_addr.dc_port);
         data_collector_addr.dc_sockaddr_in.sin_addr.s_addr = inet_addr(data_collector_addr.dc_ip.c_str());
     }
-
-    if (case_named_pipe) {
-        std::string pipe_name = av[3];
-        read_named_pipe(pipe_name, io_process_data);
-    }
 }
 
-void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data) {
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem) {
     std::ifstream pipe_file(pipe_name);
     if(pipe_file.fail()){
         std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
@@ -222,16 +225,23 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
     }
     std::string line;
     bool is_first_line = true;
+    int num_sys_count = 0;
     while (std::getline(pipe_file, line)) {
         char *line_cstr = strdup(line.c_str());
         io_process_data_struct this_io_proc;
-
         if (is_first_line) {
             is_first_line = false;    
-            num_of_systems = atoi(strtok(line_cstr, " "));
-            active_system_index = atoi(strtok(NULL, " "));
+            active_system_index = atoi(strtok(line_cstr, " "));
+            int dc_isinsystem_int = atoi(strtok(NULL, " "));
+            if (dc_isinsystem_int != 1 || dc_isinsystem_int != 0) {
+                std::cout << "Invalid value for `data_collector_isinsystem` in the named pipe/file\n";
+                exit(EXIT_FAILURE);
+            }
+            data_collector_isinsystem = dc_isinsystem_int == 1? true: false;
         }
         else {
+            num_sys_count++;
+
             // io_proc binary to use:
             this_io_proc.io_binary_path = strtok(line_cstr, " ");
             
@@ -250,6 +260,8 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
             // save:
             io_processes_data.push_back(this_io_proc);
         }
+        num_of_systems = num_sys_count;
+
         free(line_cstr);
     }
 }
@@ -337,4 +349,105 @@ void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
 
     ret = spines_sendto(sockets.to_data_collector_via_spines, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&data_collector_addr.dc_sockaddr_in, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
+}
+
+void setup_ipc_sockets_for_io_proc(int system_index) {
+    sockets.to_ioproc_via_ipc[system_index] = IPC_DGram_SendOnly_Sock(); // for sending something TO the child process
+    sockets.from_ioproc_via_ipc[system_index] = IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str()); // for receiving something FROM the child process
+}
+
+void init_io_procs() {
+    std::vector<pid_t> pids;
+    
+    for (int i=0; i < num_of_systems; i++) {
+        // set up the IPC connection using which we will talk to the child process:
+        setup_ipc_sockets_for_io_proc(i);
+
+        // Start the child process:
+        pid_t pid;
+        pids.push_back(pid);
+
+        std::cout << "Starting io_process";
+        if (num_of_systems > 1) {
+            std::cout << "# " << i << "/" << num_of_systems;
+        }
+        std::cout << "\n";
+        
+        // child -- run program on path
+        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
+        char* child_proc_cmd[4] = { 
+            const_cast<char*>(io_processes_data[i].io_binary_path.c_str()), 
+            const_cast<char*>(io_processes_data[i].spines_ip.c_str()), 
+            const_cast<char*>(std::to_string(io_processes_data[i].spines_port).c_str()),
+            NULL
+        };
+
+        if ((pid = fork()) < 0) { // error case
+            std::cout << "Error: fork returned pid < 0\n";
+            exit(EXIT_FAILURE);
+        }
+        else if(pid == 0) { 
+            // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
+            std::cout << "The child process' pid is: " << getpid() << "\n";
+            if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
+                std::cout << "Error in starting the process. errorno = "<< errno << "\n";
+                exit(EXIT_FAILURE); // exit child
+            }
+        }
+    }
+}
+
+void io_proc_message_handler(int socket_to_use, int code, void *data)
+{   
+    // This function runs for each message that is received. First it received the message on the socker. Then, if the message is from the active system, it is sent to the HMI. Finally, if there is a data collector in the system, it forwards the message to the data collector. 
+    // It is called by listen_for_messages_from_ioproc()
+
+    UNUSED(data);
+    int message_is_from = code;
+
+    int ret; 
+    int nbytes;
+    char buffer[MAX_LEN];
+    signed_message *mess;
+
+    std::cout << "There is a message from system #" << message_is_from << ":\n";
+
+    // Receive the message on the socket
+    ret = IPC_Recv(socket_to_use, buffer, MAX_LEN);
+    if (ret < 0) std::cout << "I/O process message handler for process # " << message_is_from << ": IPC_Rev failed.\n";
+    mess = (signed_message *)buffer;
+    nbytes = sizeof(signed_message) + mess->len;
+    
+    // If the message is from the active system, send to the HMI:
+    if (message_is_from == active_system_index) {
+        IPC_Send(sockets.to_hmi_via_ipc, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
+        std::cout << "I/O process message handler for process # " << message_is_from << ": " << "The message has been forwarded to the HMI\n";
+    }
+
+    if (data_collector_isinsystem) {
+        // Forward to the Data Collector:
+        send_to_data_collector(mess, nbytes, message_is_from == active_system_index? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG);
+    }
+}
+
+void *listen_for_messages_from_ioproc(void *arg) {
+    // sets up events handler. This events handler is triggered when a message is received from an I/O process
+
+    UNUSED(arg);
+
+    E_init(); // initialize libspread event handler
+        
+    for (int i=0; i < num_of_systems; i++) {
+        // Listen on the socket for this I/O process and run 
+        E_attach_fd(sockets.from_ioproc_via_ipc[i], READ_FD, io_proc_message_handler, i, NULL, MEDIUM_PRIORITY);
+    }
+    
+    E_handle_events();
+
+    return NULL;
+}
+
+void init_io_proc_message_handlers(pthread_t &thread) {
+    // create a thread that sets up events handler. This events handler is triggered when a message is received from an I/O process
+    pthread_create(&thread, NULL, &listen_for_messages_from_ioproc, NULL);
 }

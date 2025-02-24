@@ -298,16 +298,16 @@ int main(int argc, char *argv[])
         // memset(&shadow_itrc_main, 0, sizeof(itrc_data));
         // sprintf(shadow_itrc_main.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
         // sprintf(shadow_itrc_main.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        // sprintf(shadow_itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
-        // sprintf(shadow_itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
+        // sprintf(shadow_itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN_IOPROC, My_ID);
+        // sprintf(shadow_itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC_IOPROC, My_ID);
         // shadow_ipc_sock = IPC_DGram_Sock(shadow_itrc_main.ipc_local);
 
         // // Setup IPC for the Worker Thread (running the ITRC Client)
         // memset(&shadow_itrc_thread, 0, sizeof(itrc_data));
         // sprintf(shadow_itrc_thread.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
         // sprintf(shadow_itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        // sprintf(shadow_itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC_SHADOW, My_ID);
-        // sprintf(shadow_itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN_SHADOW, My_ID);
+        // sprintf(shadow_itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC_IOPROC, My_ID);
+        // sprintf(shadow_itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN_IOPROC, My_ID);
         // // ip_ptr = strtok(argv[2], ":");
         // ip_ptr = shadow_spinesd_ip_addr; // TODO: do i need a diff ip_ptr for shadow?
         // sprintf(shadow_itrc_thread.spines_ext_addr, "%s", ip_ptr);
