@@ -59,10 +59,10 @@ HEADERS       = $(SPIRE)/common/net_wrapper.h \
 	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCPATH) -o "$@" "$<"
 
 
-all: $(TARGET) shadow_io
+all: $(TARGET) io_process
 
-shadow_io:
-	$(MAKE) -C ./shadow_io/
+io_process:
+	$(MAKE) -C ./io_process/
 
 $(TARGET):  $(OBJECTS)
 	$(LINK) $(LDFLAGS) $(LFLAGS) -o $(TARGET) $(OBJECTS) $(LIBS)

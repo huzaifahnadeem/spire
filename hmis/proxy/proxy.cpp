@@ -1,39 +1,58 @@
+/*
+TODOs for switch-upgrade:
+v- using shadow_io as base, create a io_proc file
+v- use the new io_proc file as shadow for existing proxy
+-- adjusting proxy to run one io_proc by default for the comm with main
+-- add functionality to the proxy to pass an input arg for n other io procs and it runs those and sets up ipcs etc
+    -- overall args:
+        -- ip addr and port for the default io_proc (i think static path is fine: ./io_process/io_process)
+        -- data collector args: its ip addr, port
+        -- input args for other io proc binaries and the args for the io proc binaries (i think ip addr and port for spines, and the directory for keys (just the spines dir it then finds the keys by itself))
+        -- from all the io procs, which one is the active (can be optional, assume 1st one in list is active unless an arg is provided to specify which one)
+            -- maybe, if we are providing args for >1 io procs then ignore the default path etc, user must provide all io procs and which one is active (assume 1st if not provided)
+-- add switcher program
+    -- in proxy, add spines sockets etc to read on for comm from switcher
+    -- add args for its ip addr and port 
+    -- need to add switcher message packet structs here or refer to a common file that the switch also uses
+
+-- repeat all of the above for the ss side proxy too
+-- not sure rn: maybe we dont need separate io_procs for the two proxies? see if it makes sense to combine the io procs for the two proxies
+
+-- remove unused vars:
+    - shadow_isinsystem
+*/
 
 //Include headers for socket management
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
-#include <errno.h>
-#include <unistd.h>
+// #include <errno.h>
+#include <unistd.h> // for sleep()
 #include <netdb.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <signal.h>
+// #include <sys/socket.h>
+// #include <sys/time.h>
+// #include <signal.h>
 #include <arpa/inet.h>
-
-#include <pthread.h>
-#include <cstring> // for memset
+// #include <pthread.h>
+#include <cstring>
 #include <string>
-
 #include <sys/wait.h> // for forking io_process process
 #include <sys/types.h>
+#include <vector> 
+#include <fstream>
 
-namespace ns_main {
-    extern "C" {
-        #include "common/net_wrapper.h"  // needs: -I$(SPIRE)/common
-        #include "common/def.h"          // needs: -I$(SPIRE)/common
-        #include "common/itrc.h"         // needs: -I$(SPIRE)/common
-        #include "prime/libspread-util/include/spu_events.h"             // needs: -I$(PRIME)/libspread-util/include
-        #include "prime/stdutil/include/stdutil/stdcarr.h"        // needs: -I$(PRIME)/stdutil/include
-        #include "spines/libspines/spines_lib.h"             // needs: -I$(SPINES)/libspines/ 
-    }
+extern "C" {
+    #include "common/def.h" // used for MAX_LEN, etc.
+    #include "common/scada_packets.h" // used for signed_message, etc.
+    #include "common/net_wrapper.h" // for IPC_DGram_Sock(), etc
+    #include "spines/libspines/spines_lib.h" // for spines functions e.g. spines_sendto()
 }
 
-#define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
-
+// defines:
+#define DEFAULT_IO_PROCESS_PATH "./io_process/io_process"
 #define IPC_FROM_IOPROC_CHILD "/tmp/hmiproxy_ipc_ioproc_to_proxy"
 #define IPC_TO_IOPROC_CHILD "/tmp/hmiproxy_ipc_proxy_to_ioproc"
-
+#define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
 // TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
 #define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
@@ -41,156 +60,247 @@ namespace ns_main {
 #define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
 #define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
 #define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
+
+// structs:
+struct io_process_data_struct {
+    std::string io_binary_path;
+    std::string spines_ip;
+    int spines_port;
+    std::string ipc_path_suffix;
+};
+struct data_collector_addr_struct {
+    std::string dc_ip;
+    int dc_port;
+    std::string spines_ip;
+    int spines_port;
+    sockaddr_in dc_sockaddr_in;
+};
+struct sockets_struct {
+    int from_hmi_via_ipc; // for messages coming from the HMI
+    int to_hmi_via_ipc; // for sending messages to the HMI
+    std::vector<int> from_ioproc_via_ipc; // for messages coming from the I/O processes
+    std::vector<int> to_ioproc_via_ipc; // for sending messages to the I/O processes
+    int to_data_collector_via_spines;
+};
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
     int nbytes_struct;
-    ns_main::signed_message system_message;
+    signed_message system_message;
 }; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
 
+// global variables:
 bool data_collector_isinsystem = false;
-bool shadow_isinsystem = false;
+int num_of_systems = 0;
+int active_system_index = -1;
+sockets_struct sockets;
+std::vector<io_process_data_struct> io_processes_data;
+data_collector_addr_struct data_collector_addr = {.dc_ip="", .dc_port=-1, .spines_ip="", .spines_port=-1, .dc_sockaddr_in={}}; // initialize
 
-int ipc_sock_to_hmi, ipc_sock_from_hmi;
-ns_main::itrc_data mainthread_to_itrcthread_data;
-ns_main::itrc_data itr_client_data;
-int ipc_sock_main_to_itrcthread;
-unsigned int Seq_Num;
-std::string shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
-std::string shadow_io_path = "./io_process/io_process";
-int ipc_sock_to_child, ipc_sock_from_child;
+// function declarations:
+void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr);
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data);
+void setup_ipc_for_hmi(sockets_struct &sockets);
+void init_hmi_listen_thread(pthread_t &thread);
+void setup_data_collector_spines_sock();
+void send_to_data_collector(signed_message *msg, int nbytes, int stream);
 
-// for comm. with data collector:
-int dc_spines_sock; // spines socket to be used for communicating with the data collector
-struct sockaddr_in dc_addr; // data collector's address (contains ip addr and port)
-
-void usage_check(int ac);
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port);
-void setup_ipc_for_hmi();
-void itrc_init(std::string spinesd_ip_addr, int spinesd_port);
-void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port);
-void recv_then_fw_to_hmi_and_dc(int s, int dummy1, void *dummy2);
-void *handler_msg_from_itrc(void *arg);
-void *listen_on_hmi_sock(void *arg);
-void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream);
-void setup_ipc_with_shadow_io();
-
+// function definitions:
 int main(int ac, char **av) {
-    std::string spinesd_ip_addr; // for spines daemon (main system)
-    int spinesd_port;
-    std::string dc_ip_addr; // for data collector
-    int dc_port;
-    std::string shadow_spinesd_ip_addr; // for spines daemon (shadow system)
-    int shadow_spinesd_port;
-
-    parse_args(ac, av, spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port, shadow_spinesd_ip_addr, shadow_spinesd_port);
+    // read input args and store the data in the data structures:
+    parse_args(ac, av, io_processes_data, data_collector_addr);
     
+    // set up for communication with the Data Collector
+    setup_data_collector_spines_sock();
+
+    // set up for communication with the HMI
+    setup_ipc_for_hmi(sockets);
+
+    // initialize and set up the thread that listens for messages from the HMI:
     pthread_t hmi_listen_thread;
-    pthread_t itrc_thread;
-    pthread_t handle_msg_from_itrc_thread;
+    init_hmi_listen_thread(hmi_listen_thread);
 
-    setup_ipc_for_hmi();
-    itrc_init(spinesd_ip_addr, spinesd_port);
+    std::cout << "last line (temp). TODO remove this line \n";
     
-    if (shadow_isinsystem) {
-        setup_ipc_with_shadow_io();
-    }
-
-    if (data_collector_isinsystem) {
-        setup_datacoll_spines_sock(spinesd_ip_addr, spinesd_port, dc_ip_addr, dc_port);
-    }
-
-    pthread_create(&handle_msg_from_itrc_thread, NULL, &handler_msg_from_itrc, NULL); // receives messages from itrc client (and from itrc client for shadow too)
-    pthread_create(&hmi_listen_thread, NULL, &listen_on_hmi_sock, NULL); // listens for command messages coming from the HMI and forwards it to the ITRC client and the data collector
-    pthread_create(&itrc_thread, NULL, &ns_main::ITRC_Client, (void *)&itr_client_data); // ITRC_Client thread will take care of any forwarding/receving the replicas via spines
-    
-    if (shadow_isinsystem) {
-        /* Start shadow_io proc */
-        printf("Starting io_process (shadow)\n");
-        pid_t pid;
-        //child -- run program on path
-        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
-        char* child_proc_cmd[5] = {const_cast<char*>(shadow_io_path.c_str()), const_cast<char*>(shadow_spinesd_ip_addr.c_str()), const_cast<char*>(std::to_string(shadow_spinesd_port).c_str()), const_cast<char*>(shadow_spire_dir.c_str()), NULL};
-
-        if ((pid = fork()) < 0) { // error case
-            std::cout << "Error: fork returned pid < 0\n";
-            exit(1);
-        }
-        else if(pid == 0) { 
-            // only child proc will run this. parent moves to the very next line after the end of 'if (shadow_isinsystem)' if statement
-            printf("The child proc's pid is: %d\n", getpid());
-            if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
-                std::cout << "error starting shadow_io. errorno = "<< errno << "\n";
-                exit(1); // exit child
-            }
-        }
-        // no need to separately make a thread to listen for updates from shadow_io. the itrc handler checks for that too
-    }
-
+    // wait for the threads before exiting
     pthread_join(hmi_listen_thread, NULL);
-    pthread_join(itrc_thread, NULL);
-    pthread_join(handle_msg_from_itrc_thread, NULL);
-    
-    // if (shadow_isinsystem) {
-    //     pthread_join(shadow_itrc_thread, NULL);
-    // }
-    
+
     return 0;
 }
 
-void usage_check(int ac) {
-    // Usage check
-    if (ac == 2) { // running with just the main system
+void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr) {
+    bool one_default_sys = false;
+    bool case_named_pipe = false;
+
+    if (ac == 2) { // running with just the one active system
+        one_default_sys = true;
         data_collector_isinsystem = false;
-        shadow_isinsystem = false;
     }
-    else if (ac == 3) { // running with the main system and the data collector
+    else if (ac == 3) { // running with the one active system and the data collector
+        one_default_sys = true;
         data_collector_isinsystem = true;
-        shadow_isinsystem = false;
     }
-    else if (ac == 4 || ac == 5) { // running with the main system, the data collector, and the shadow system (if running with shadow, the user can optionally provide the directory where the the shadow binaries of spire are. That is useful to find keys if the shadow is running in a different configuration and/or using different keys)
+    else if (ac == 4) {  
+        // running with the main system, the data collector, and shadow system(s).
+        
+        // if you want to run with shadow/twin systems, for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems
+        // This program will expect the first line to be: `num_of_systems active_system_index`. active_system_index starts at 0.
+        // Other lines are to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath
+        // If this arg is provided: 
+        //      A data collector will always be used in this setting. 
+        //      the first arg will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector
+        
         data_collector_isinsystem = true;
-        shadow_isinsystem = true;
+        case_named_pipe =  true;
     }
     else {
-        printf("Invalid args\n");
-        printf("Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort] [shadowSpireDirectory]\n");
+        std::cout 
+        << "Invalid args\n" 
+        << "Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [named pipe name or file name to use multiple systems]\n" 
+        << "If you want to run with shadow/twin systems: for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems\n" 
+        << "For the named pipe/file, this program will expect the first line to be: `num_of_systems active_system_index`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on.\n" 
+        << "2nd line and onwards are expected to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath\n" 
+        << "If this arg is provided:\n\tA data collector will always be used in this setting.\n\tThe first arg will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector\n";
+             
         exit(EXIT_FAILURE);
     }
-}
 
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, std::string &dc_ip_addr, int &dc_port, std::string &shadow_spinesd_ip_addr, int &shadow_spinesd_port) {
-    usage_check(ac);
+    if (one_default_sys) {
+        num_of_systems = 1;
+        active_system_index = 1;
 
-    int colon_pos;
-    
-    std::string spinesd_arg = av[1];
-    colon_pos = -1;
-    colon_pos = spinesd_arg.find(':');
-    spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
-    spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+        int colon_pos = -1;
+        std::string spinesd_arg = av[1];
+        colon_pos = spinesd_arg.find(':');
+        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
+        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+
+        io_process_data_struct this_io_proc;
+        this_io_proc.io_binary_path = DEFAULT_IO_PROCESS_PATH;
+        this_io_proc.spines_ip = spinesd_ip_addr;
+        this_io_proc.spines_port = spinesd_port;
+        
+        io_process_data.push_back(this_io_proc);
+    }
 
     if (data_collector_isinsystem) {
+        // ip and port for the data collector process
         std::string dc_arg = av[2];
-        colon_pos = -1;
+        int colon_pos = -1;
         colon_pos = dc_arg.find(':');
-        dc_ip_addr = dc_arg.substr(0, colon_pos);
-        dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
+        std::string dc_ip_addr = dc_arg.substr(0, colon_pos);
+        int dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
+        data_collector_addr.dc_ip = dc_ip_addr;
+        data_collector_addr.dc_port = dc_port;
+
+        // spines ip, port to use for comm. with the data collector
+        colon_pos = -1;
+        std::string spinesd_arg = av[1];
+        colon_pos = spinesd_arg.find(':');
+        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
+        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+        data_collector_addr.spines_ip = spinesd_ip_addr;
+        data_collector_addr.spines_port = spinesd_port;
+
+        // set up the sockaddr_in data struct:
+        data_collector_addr.dc_sockaddr_in.sin_family = AF_INET;
+        data_collector_addr.dc_sockaddr_in.sin_port = htons(data_collector_addr.dc_port);
+        data_collector_addr.dc_sockaddr_in.sin_addr.s_addr = inet_addr(data_collector_addr.dc_ip.c_str());
     }
 
-    if (shadow_isinsystem) {
-        std::string shadow_spinesd_arg = av[3];
-        colon_pos = -1;
-        colon_pos = spinesd_arg.find(':');
-        shadow_spinesd_ip_addr = shadow_spinesd_arg.substr(0, colon_pos);
-        shadow_spinesd_port = std::stoi(shadow_spinesd_arg.substr(colon_pos + 1));
-        if (ac == 5) {
-            shadow_spire_dir = av[4];
-        }
+    if (case_named_pipe) {
+        std::string pipe_name = av[3];
+        read_named_pipe(pipe_name, io_process_data);
     }
 }
 
-void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, std::string dc_ip_addr, int dc_port) {
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data) {
+    std::ifstream pipe_file(pipe_name);
+    if(pipe_file.fail()){
+        std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
+        exit(EXIT_FAILURE);
+    }
+    std::string line;
+    bool is_first_line = true;
+    while (std::getline(pipe_file, line)) {
+        char *line_cstr = strdup(line.c_str());
+        io_process_data_struct this_io_proc;
+
+        if (is_first_line) {
+            is_first_line = false;    
+            num_of_systems = atoi(strtok(line_cstr, " "));
+            active_system_index = atoi(strtok(NULL, " "));
+        }
+        else {
+            // io_proc binary to use:
+            this_io_proc.io_binary_path = strtok(line_cstr, " ");
+            
+            // spines ip addr and port to use with this io_process:
+            int colon_pos = -1;
+            std::string ip_and_port = strtok(NULL, " ");
+            colon_pos = ip_and_port.find(':');
+            std::string ip_addr = ip_and_port.substr(0, colon_pos);
+            int port = std::stoi(ip_and_port.substr(colon_pos + 1));
+            this_io_proc.spines_ip = ip_addr;
+            this_io_proc.spines_port = port;
+            
+            // suffix for the ipc path
+            this_io_proc.ipc_path_suffix = strtok(NULL, " ");
+
+            // save:
+            io_processes_data.push_back(this_io_proc);
+        }
+        free(line_cstr);
+    }
+}
+
+void setup_ipc_for_hmi(sockets_struct &sockets)
+{   
+    sockets.from_hmi_via_ipc = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMI-side-proxy communication
+    sockets.to_hmi_via_ipc = IPC_DGram_SendOnly_Sock(); // for HMI-side-proxy to HMI communication
+}
+
+void *listen_on_hmi_sock(void *arg){
+    // sockets_struct * sockets = (sockets_struct*) (arg);
+    UNUSED(arg);
+
+    int ret; 
+    char buf[MAX_LEN];
+    signed_message *mess;
+    int nbytes;
+
+    for (;;) {
+        std::cout << "Waiting to receive something on the HMI socket\n";
+        ret = IPC_Recv(sockets.from_hmi_via_ipc, buf, MAX_LEN);
+        if (ret < 0) {
+            std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
+        }
+        else {
+            std::cout << "Received a message from the HMI. ret = " << ret << "\n";
+            mess = (signed_message *)buf;
+            nbytes = sizeof(signed_message) + mess->len;
+            for (int i=0; i < num_of_systems; i++) {
+                ret = IPC_Send(sockets.to_ioproc_via_ipc[i], (void *)mess, nbytes, (IPC_TO_IOPROC_CHILD + io_processes_data[i].ipc_path_suffix).c_str());
+                if (ret < 0) {
+                    std::cout << "Failed to sent message to the IRTC thread. ret = " << ret << "\n";
+                }
+                std::cout << "The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
+            }
+
+            if (data_collector_isinsystem) {
+                send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
+            }
+        }
+    }
+    return NULL;
+}
+
+void init_hmi_listen_thread(pthread_t &thread) {
+    // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
+    pthread_create(&thread, NULL, &listen_on_hmi_sock, NULL);
+}
+
+void setup_data_collector_spines_sock() {
     int proto;//, num, ret;
     int spines_timeout;
     
@@ -200,11 +310,11 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
      *  this often */
     spines_timeout = DATA_COLLECTOR_SPINES_CONNECT_SEC;
 
-    dc_spines_sock = -1; // -1 is not a real socket so init to that
+    sockets.to_data_collector_via_spines = -1; // -1 is not a real socket so init to that
     while (1)
-    {
-        dc_spines_sock = ns_main::Spines_SendOnly_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto);
-        if (dc_spines_sock < 0) {
+    {   
+        sockets.to_data_collector_via_spines = Spines_SendOnly_Sock(data_collector_addr.spines_ip.c_str(), data_collector_addr.spines_port, proto);
+        if (sockets.to_data_collector_via_spines < 0) {
             std::cout << "setup_datacoll_spines_sock(): Unable to connect to Spines, trying again soon\n";
             sleep(spines_timeout);
         }
@@ -213,168 +323,18 @@ void setup_datacoll_spines_sock(std::string spinesd_ip_addr, int spinesd_port, s
             break;
         }
     }
-
-    dc_addr.sin_family = AF_INET;
-    dc_addr.sin_port = htons(dc_port);
-    dc_addr.sin_addr.s_addr = inet_addr(dc_ip_addr.c_str());
 }
 
-void setup_ipc_for_hmi()
-{   
-    ipc_sock_from_hmi = ns_main::IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMIproxy communication
-    ipc_sock_to_hmi = ns_main::IPC_DGram_SendOnly_Sock(); // for HMIproxy to HMI communication
-}
-
-void recv_then_fw_to_hmi_and_dc(int s, int main_or_shadow, void *dummy2) // called by handler_msg_from_itrc
-{   
-    int ret; 
-    int nbytes;
-    char buf[MAX_LEN];
-    ns_main::signed_message *mess;
-
-    // UNUSED(dummy1);
-    UNUSED(dummy2);
-
-    std::cout << "recv_then_fw_to_hmi_and_dc():\n";
-
-    // Receive from ITRC Client"
-    if (main_or_shadow == 0) std::cout << "There is a message from the ITRC Client (main) \n";      // (main_or_shadow == 0) => main
-    if (main_or_shadow == 1) std::cout << "There is a message from the ITRC Client (shadow) \n";    // (main_or_shadow == 1) => shadow
-    ret = ns_main::IPC_Recv(s, buf, MAX_LEN);
-    if (ret < 0) printf("recv_msg_from_itrc(): IPC_Rev failed\n");
-    
-    mess = (ns_main::signed_message *)buf;
-    nbytes = sizeof(ns_main::signed_message) + mess->len;
-    // Forward to HMI (only forward messages that are coming from the main system (shadow's messages are only fw to data collector, thats it))
-    if (main_or_shadow == 0) {
-        ns_main::IPC_Send(ipc_sock_to_hmi, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
-        std::cout << "The message has been forwarded to the HMI\n";
-    }
-
-    if (data_collector_isinsystem) {
-        // Forward to the Data Collector:
-        send_to_data_collector(mess, nbytes, main_or_shadow == 0? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG);
-    }
-}
-
-void *handler_msg_from_itrc(void *arg)
-{   
-    UNUSED(arg);
-    
-    std::cout << "initialized handler_msg_from_itrc() \n";
-
-    ns_main::E_init();
-    ns_main::E_attach_fd(ipc_sock_main_to_itrcthread, READ_FD, recv_then_fw_to_hmi_and_dc, 0, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the proxy
-    if (shadow_isinsystem){
-        ns_main::E_attach_fd(ipc_sock_from_child, READ_FD, recv_then_fw_to_hmi_and_dc, 1, NULL, MEDIUM_PRIORITY); // recv_then_fw_to_hmi_and_dc called when there is a message to be received from the shadow (via shadow_io child proc)
-    }
-    ns_main::E_handle_events();
-
-    return NULL;
-}
-
-void *listen_on_hmi_sock(void *arg){
-    UNUSED(arg);
-
-    int ret; 
-    char buf[MAX_LEN];
-    ns_main::signed_message *mess;
-    int nbytes;
-
-    for (;;) {
-        std::cout << "Waiting to receive something on the HMI socket\n";
-        ret = ns_main::IPC_Recv(ipc_sock_from_hmi, buf, MAX_LEN);
-        if (ret < 0) {
-            std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
-        }
-        else {
-            std::cout << "Received a message from the HMI. ret = " << ret << "\n";
-            mess = (ns_main::signed_message *)buf;
-            nbytes = sizeof(ns_main::signed_message) + mess->len;
-            ret = ns_main::IPC_Send(ipc_sock_main_to_itrcthread, (void *)mess, nbytes, mainthread_to_itrcthread_data.ipc_remote);
-            if (ret < 0) {
-                std::cout << "Failed to sent message to the IRTC thread. ret = " << ret << "\n";
-            }
-            std::cout << "The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
-
-            if (data_collector_isinsystem) {
-                send_to_data_collector(mess, nbytes, HMI_PROXY_HMI_CMD);
-            }
-            if (shadow_isinsystem) {
-                ret = ns_main::IPC_Send(ipc_sock_to_child, (void *)mess, nbytes, IPC_TO_IOPROC_CHILD);
-                if (ret < 0) {
-                    std::cout << "Failed to sent message to the shadow IRTC thread. ret = " << ret << "\n";
-                }
-                else {
-                    std::cout << "The message has been forwarded to the itrc thread (shadow) \n";
-                }
-            }
-        }
-    }
-    return NULL;
-}
-
-void send_to_data_collector(ns_main::signed_message *msg, int nbytes, int stream) {
+void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
     int ret;
-    std::cout << "Sending to data collector\n";
-    // ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
-    struct data_collector_packet data_packet;
+    std::cout << "Forwarding a message to the data collector\n";
+    
+    data_collector_packet data_packet;
     data_packet.data_stream = stream;
     data_packet.system_message = *msg;
     data_packet.nbytes_mess = nbytes;
-    data_packet.nbytes_struct = sizeof(ns_main::signed_message) + msg->len + 3*sizeof(int);
-    ret = ns_main::spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_addr, sizeof(struct sockaddr));
+    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
+
+    ret = spines_sendto(sockets.to_data_collector_via_spines, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&data_collector_addr.dc_sockaddr_in, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
-}
-
-void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, ns_main::itrc_data &itrc_data_main, ns_main::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
-{   
-    struct timeval now;
-    ns_main::My_Global_Configuration_Number = 0;
-    ns_main::Init_SM_Replicas();
-
-    // NET Setup
-    gettimeofday(&now, NULL);
-    ns_main::My_Incarnation = now.tv_sec;
-    Seq_Num = 1;
-    ns_main::Type = HMI_TYPE;
-    ns_main::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
-    ns_main::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + ns_main::My_ID;
-    ns_main::My_IP = ns_main::getIP();
-
-    // Setup IPC for HMI main thread
-    memset(&itrc_data_main, 0, sizeof(ns_main::itrc_data));
-    sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
-    sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
-    
-    sock_main_to_itrc_thread = ns_main::IPC_DGram_Sock(itrc_data_main.ipc_local);
-
-    // Setup IPC for Worker thread (itrc client)
-    memset(&itrc_data_itrcclient, 0, sizeof(ns_main::itrc_data));
-    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), ns_main::My_ID);
-    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), ns_main::My_ID);
-    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
-}
-
-void itrc_init(std::string spinesd_ip_addr, int spinesd_port) {
-    _itrc_init( spinesd_ip_addr, 
-                spinesd_port, 
-                mainthread_to_itrcthread_data, 
-                itr_client_data, 
-                ipc_sock_main_to_itrcthread, 
-                HMI_PRIME_KEYS, 
-                HMI_SM_KEYS, 
-                HMIPROXY_IPC_MAIN, 
-                HMIPROXY_IPC_ITRC );
-}
-
-void setup_ipc_with_shadow_io() {
-    // shadow_io is the child:
-    ipc_sock_to_child = ns_main::IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
-    ipc_sock_from_child = ns_main::IPC_DGram_Sock(IPC_FROM_IOPROC_CHILD); // for receiving something FROM the parent
 }
