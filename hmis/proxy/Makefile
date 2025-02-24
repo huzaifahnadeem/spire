@@ -2,9 +2,9 @@ CC            = gcc
 CXX           = g++
 CFLAGS        += -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
 CXXFLAGS      += -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
-PRIME         = ../../prime
-SPINES        = ../../spines
 SPIRE         = ../..
+PRIME         = $(SPIRE)/prime
+SPINES        = $(SPIRE)/spines
 INCPATH       = -I. \
 				-I$(SPIRE) \
 				-I$(PRIME)/stdutil/include \

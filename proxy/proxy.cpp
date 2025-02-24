@@ -60,20 +60,22 @@
 #include <unistd.h>
 #include <pthread.h>
 
-
-#include "../common/net_wrapper.h" 
-#include "../common/def.h"
-#include "../common/openssl_rsa.h"
-#include "../common/tc_wrapper.h"
-#include "../common/itrc.h"
-#include "../common/scada_packets.h"
-#include "../common/key_value.h"
-#include "../config/cJSON.h"
-#include "../config/config_helpers.h"
+extern "C" {
+    #include "common/net_wrapper.h" 
+    #include "common/def.h"
+    #include "common/openssl_rsa.h"
+    #include "common/tc_wrapper.h"
+    #include "common/itrc.h"
+    #include "common/scada_packets.h"
+    #include "common/key_value.h"
+    #include "config/cJSON.h"
+    #include "config/config_helpers.h"
+    #include "spines/libspines/spines_lib.h" // for spines functions e.g. spines_sendto()
+}
 
 #define MAX_PATH 1000
 
-// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
+// TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
 #define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
 #define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy

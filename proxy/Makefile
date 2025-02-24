@@ -1,81 +1,75 @@
- #
- # Spire.
- #
- # The contents of this file are subject to the Spire Open-Source
- # License, Version 1.0 (the ``License''); you may not use
- # this file except in compliance with the License.  You may obtain a
- # copy of the License at:
- #
- # http://www.dsn.jhu.edu/spire/LICENSE.txt 
- #
- # or in the file ``LICENSE.txt'' found in this distribution.
- #
- # Software distributed under the License is distributed on an AS IS basis, 
- # WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License 
- # for the specific language governing rights and limitations under the 
- # License.
- #
- # Spire is developed at the Distributed Systems and Networks Lab,
- # Johns Hopkins University and the Resilient Systems and Societies Lab,
- # University of Pittsburgh.
- #
- # Creators:
- #   Yair Amir            yairamir@cs.jhu.edu
- #   Trevor Aron          taron1@cs.jhu.edu
- #   Amy Babay            babay@pitt.edu
- #   Thomas Tantillo      tantillo@cs.jhu.edu 
- #   Sahiti Bommareddy    sahiti@cs.jhu.edu
- #   Maher Khan           maher@cs.pitt.edu
- #
- # Major Contributors:
- #   Marco Platania       Contributions to architecture design 
- #   Daniel Qian          Contributions to Trip Master and IDS 
+CC            = gcc
+CXX           = g++
+CFLAGS        += -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
+CXXFLAGS      += -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
+SPIRE         = ../
+PRIME         = $(SPIRE)/prime
+SPINES        = $(SPIRE)/spines
+INCPATH       = -I. \
+				-I$(SPIRE) \
+				-I$(PRIME)/stdutil/include \
 
- #
- # Contributors:
- #   Samuel Beckley       Contributions to HMIs 
- #
- # Copyright (c) 2017-2024 Johns Hopkins University.
- # All rights reserved.
- #
- # Partial funding for Spire research was provided by the Defense Advanced 
- # Research Projects Agency (DARPA), the Department of Defense (DoD), and the
- # Department of Energy (DoE).
- # Spire is not necessarily endorsed by DARPA, the DoD or the DoE. 
- #
- #
+LINK          = g++
+LFLAGS        = -m64 -Wl,-O1
+LIBS          = $(SUBLIBS) -lpthread \
+				$(PRIME)/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
+				$(SPINES)/libspines/libspines.a \
+				$(PRIME)/stdutil/lib/libstdutil.a \
+				$(PRIME)/libspread-util/lib/libspread-util.a -lrt -ldl -lcrypto \
 
-CC=gcc
-CFLAGS+= -Wall -W -g
-TARGET=proxy
-LIBS=-lpthread ../prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
-           ../spines/libspines/libspines.a ../prime/stdutil/lib/libstdutil.a \
-		   -lrt -ldl -lcrypto -lpthread -lm
-INC= -I ../prime/stdutil/include -I ../spines/libspines/
-OBJECTS=proxy.o \
-		../common/scada_packets.o \
-		../common/net_wrapper.o \
-		../common/openssl_rsa.o \
-		../common/tc_wrapper.o \
-		../common/itrc.o \
-		../common/key_value.o \
-		../config/cJSON.o \
-		../config/config_helpers.o
+TARGET        = proxy
+SOURCES       = \
+		proxy.cpp \
+        $(SPIRE)/common/scada_packets.c \
+        $(SPIRE)/common/net_wrapper.c \
+        $(SPIRE)/common/openssl_rsa.c \
+        $(SPIRE)/common/tc_wrapper.c \
+        $(SPIRE)/common/itrc.c \
+		$(SPIRE)/common/key_value.c \
+		$(SPIRE)/config/cJSON.c \
+		$(SPIRE)/config/config_helpers.c \
 
-all: $(TARGET) 
+OBJECTS       = \
+		proxy.o \
+        $(SPIRE)/common/scada_packets.o \
+        $(SPIRE)/common/net_wrapper.o \
+        $(SPIRE)/common/openssl_rsa.o \
+        $(SPIRE)/common/tc_wrapper.o \
+        $(SPIRE)/common/itrc.o \
+		$(SPIRE)/common/key_value.o \
+		$(SPIRE)/config/cJSON.o \
+		$(SPIRE)/config/config_helpers.o \
 
-$(TARGET): $(OBJECTS)
-	$(CC) $(LDFLAGS) -o $(TARGET) $(OBJECTS) $(LIBS)
+HEADERS       = $(SPIRE)/common/net_wrapper.h \
+		$(SPIRE)/common/openssl_rsa.h \
+		$(SPIRE)/common/tc_wrapper.h \
+		$(SPIRE)/common/scada_packets.h \
+		$(SPIRE)/common/def.h \
+        $(SPIRE)/common/itrc.h \
+		$(SPIRE)/common/key_value.h \
+		$(SPIRE)/config/config_helpers.h \
+		$(SPIRE)/config/cJSON.h \
 
-clean:
-	rm -f $(OBJECTS)
-	rm -f $(TARGET)
+.SUFFIXES: .o .c .cpp .cc .cxx .C
 
-proxy.o: proxy.c ../common/scada_packets.h \
-				../common/net_wrapper.h ../common/openssl_rsa.h \
-				../common/tc_wrapper.h ../common/itrc.h \
-				../common/key_value.h ../config/cJSON.h ../config/config_helpers.h
-	$(CC) -c $(CFLAGS) $(INC) -o proxy.o proxy.c 
+.cpp.o:
+	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCPATH) -o "$@" "$<"
 
-%.o:	%.c
-		$(CC) $(CFLAGS) $(INC) -c -o $*.o $*.c
+.c.o:
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCPATH) -o "$@" "$<"
+
+
+all: $(TARGET) io_process
+
+io_process:
+	$(MAKE) -C ./io_process/
+
+$(TARGET):  $(OBJECTS)
+	$(LINK) $(LDFLAGS) $(LFLAGS) -o $(TARGET) $(OBJECTS) $(LIBS)
+
+clean: 
+	rm -rf $(OBJECTS)
+	rm -rf $(TARGET)
+
+proxy.o: proxy.cpp $(HEADERS)
+	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCPATH) -o proxy.o proxy.cpp
