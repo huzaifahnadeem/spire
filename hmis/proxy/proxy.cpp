@@ -375,10 +375,11 @@ void init_io_procs() {
         
         // child -- run program on path
         // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
-        char* child_proc_cmd[4] = { 
+        char* child_proc_cmd[5] = { 
             const_cast<char*>(io_processes_data[i].io_binary_path.c_str()), 
             const_cast<char*>(io_processes_data[i].spines_ip.c_str()), 
             const_cast<char*>(std::to_string(io_processes_data[i].spines_port).c_str()),
+            const_cast<char*>(io_processes_data[i].ipc_path_suffix.c_str()),
             NULL
         };
 
