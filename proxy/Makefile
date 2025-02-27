@@ -59,10 +59,7 @@ HEADERS       = $(SPIRE)/common/net_wrapper.h \
 	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCPATH) -o "$@" "$<"
 
 
-all: $(TARGET) io_process
-
-io_process:
-	$(MAKE) -C ./io_process/
+all: $(TARGET) 
 
 $(TARGET):  $(OBJECTS)
 	$(LINK) $(LDFLAGS) $(LFLAGS) -o $(TARGET) $(OBJECTS) $(LIBS)
@@ -73,3 +70,4 @@ clean:
 
 proxy.o: proxy.cpp $(HEADERS)
 	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCPATH) -o proxy.o proxy.cpp
+	$(MAKE) -C ./io_process/
