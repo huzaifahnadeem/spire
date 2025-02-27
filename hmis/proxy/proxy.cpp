@@ -1,27 +1,3 @@
-/*
-TODOs for switch-upgrade:
-v- using shadow_io as base, create a io_proc file
-v- use the new io_proc file as shadow for existing proxy
--- adjusting proxy to run one io_proc by default for the comm with main
--- add functionality to the proxy to pass an input arg for n other io procs and it runs those and sets up ipcs etc
-    -- overall args:
-        -- ip addr and port for the default io_proc (i think static path is fine: ./io_process/io_process)
-        -- data collector args: its ip addr, port
-        -- input args for other io proc binaries and the args for the io proc binaries (i think ip addr and port for spines, and the directory for keys (just the spines dir it then finds the keys by itself))
-        -- from all the io procs, which one is the active (can be optional, assume 1st one in list is active unless an arg is provided to specify which one)
-            -- maybe, if we are providing args for >1 io procs then ignore the default path etc, user must provide all io procs and which one is active (assume 1st if not provided)
--- add switcher program
-    -- in proxy, add spines sockets etc to read on for comm from switcher
-    -- add args for its ip addr and port 
-    -- need to add switcher message packet structs here or refer to a common file that the switch also uses
-
--- repeat all of the above for the ss side proxy too
--- not sure rn: maybe we dont need separate io_procs for the two proxies? see if it makes sense to combine the io procs for the two proxies
-
--- remove unused vars:
-    - shadow_isinsystem
-*/
-
 //Include headers for socket management
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,7 +90,9 @@ int main(int ac, char **av) {
     parse_args(ac, av, io_processes_data, data_collector_addr);
     
     // set up for communication with the Data Collector
-    setup_data_collector_spines_sock();
+    if (data_collector_isinsystem) {
+        setup_data_collector_spines_sock();
+    }
 
     // set up for communication with the HMI
     setup_ipc_for_hmi(sockets);
@@ -161,7 +139,7 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
         << "Invalid args\n" 
         << "Usage: ./proxy spinesAddr:spinesPort [dataCollectorAddr:dataCollectorPort] [named pipe name or file name to use multiple systems]\n" 
         << "If you want to run with shadow/twin systems: for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems\n" 
-        << "For the named pipe/file, this program will expect the first line to be: `num_of_systems active_system_index` `data_collector_is_in_system`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on. `data_collector_is_in_system` can be set to 0 (false) and 1 (true) to specify whether or not there is going to be a data collector in the system. Note that there is a single space between these two.\n" 
+        << "For the named pipe/file, this program will expect the first line to be: `active_system_index data_collector_is_in_system`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on. `data_collector_is_in_system` can be set to 0 (false) and 1 (true) to specify whether or not there is going to be a data collector in the system. Note that there is a single space between these two.\n" 
         << "2nd line and onwards are expected to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath\n" 
         << "If this arg is provided:\n\tIf is is specified that we will have a data collector, then the first argument will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector.\n\tOtherwise, if is is specified that we will NOT have a data collector, then the first two arguments are ignored.\n";
              
@@ -170,7 +148,7 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
 
     if (one_default_sys) {
         num_of_systems = 1;
-        active_system_index = 1;
+        active_system_index = 0;
 
         int colon_pos = -1;
         std::string spinesd_arg = av[1];
@@ -182,6 +160,7 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
         this_io_proc.io_binary_path = DEFAULT_IO_PROCESS_PATH;
         this_io_proc.spines_ip = spinesd_ip_addr;
         this_io_proc.spines_port = spinesd_port;
+        this_io_proc.ipc_path_suffix = "0";
         
         io_process_data.push_back(this_io_proc);
     }
@@ -327,11 +306,11 @@ void setup_data_collector_spines_sock() {
     {   
         sockets.to_data_collector_via_spines = Spines_SendOnly_Sock(data_collector_addr.spines_ip.c_str(), data_collector_addr.spines_port, proto);
         if (sockets.to_data_collector_via_spines < 0) {
-            std::cout << "setup_datacoll_spines_sock(): Unable to connect to Spines, trying again soon\n";
+            std::cout << "setup_data_collector_spines_sock(): Unable to connect to Spines, trying again soon\n";
             sleep(spines_timeout);
         }
         else {
-            std::cout << "setup_datacoll_spines_sock(): Connected to Spines\n";
+            std::cout << "setup_data_collector_spines_sock(): Connected to Spines\n";
             break;
         }
     }
@@ -418,6 +397,8 @@ void io_proc_message_handler(int socket_to_use, int code, void *data)
     if (ret < 0) std::cout << "I/O process message handler for process # " << message_is_from << ": IPC_Rev failed.\n";
     mess = (signed_message *)buffer;
     nbytes = sizeof(signed_message) + mess->len;
+
+    // TODO: check for PRIME_OOB_CONFIG_MSG ?
     
     // If the message is from the active system, send to the HMI:
     if (message_is_from == active_system_index) {

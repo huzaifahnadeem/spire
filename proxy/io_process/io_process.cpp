@@ -73,14 +73,14 @@ int main(int ac, char **av) {
 void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port) {
     if (ac != 5) {
         printf("Invalid args\n");
-        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort My_ID_for_ITRC ipc_path_suffix\n");
+        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort ipc_path_suffix My_ID_for_ITRC\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
     ioproc_spinesd_ip_addr = av[1];
     ioproc_spinesd_port = atoi(av[2]);
-    my_id_for_itrc = atoi(av[3]);
-    ipc_path_suffix = av[4];
+    ipc_path_suffix = av[3];
+    my_id_for_itrc = atoi(av[4]);
 }
 
 void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string proxy_prime_keys_dir, std::string proxy_sm_keys_dir, std::string ssproxy_ipc_main_procfile, std::string ssproxy_ipc_itrc_procfile)

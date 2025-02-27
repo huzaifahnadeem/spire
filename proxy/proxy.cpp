@@ -1,64 +1,19 @@
-/*
- * Spire.
- *
- * The contents of this file are subject to the Spire Open-Source
- * License, Version 1.0 (the ``License''); you may not use
- * this file except in compliance with the License.  You may obtain a
- * copy of the License at:
- *
- * http://www.dsn.jhu.edu/spire/LICENSE.txt 
- *
- * or in the file ``LICENSE.txt'' found in this distribution.
- *
- * Software distributed under the License is distributed on an AS IS basis, 
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License 
- * for the specific language governing rights and limitations under the 
- * License.
- *
- * Spire is developed at the Distributed Systems and Networks Lab,
- * Johns Hopkins University and the Resilient Systems and Societies Lab,
- * University of Pittsburgh.
- *
- * Creators:
- *   Yair Amir            yairamir@cs.jhu.edu
- *   Trevor Aron          taron1@cs.jhu.edu
- *   Amy Babay            babay@pitt.edu
- *   Thomas Tantillo      tantillo@cs.jhu.edu 
- *   Sahiti Bommareddy    sahiti@cs.jhu.edu
- *   Maher Khan           maherkhan@pitt.edu
- *
- * Major Contributors:
- *   Marco Platania       Contributions to architecture design 
- *   Daniel Qian          Contributions to Trip Master and IDS 
- *
- * Contributors:
- *   Samuel Beckley       Contributions to HMIs
- *
- * Copyright (c) 2017-2024 Johns Hopkins University.
- * All rights reserved.
- *
- * Partial funding for Spire research was provided by the Defense Advanced 
- * Research Projects Agency (DARPA), the Department of Defense (DoD), and the
- * Department of Energy (DoE).
- * Spire is not necessarily endorsed by DARPA, the DoD or the DoE. 
- *
- */
-
+//Include headers for socket management
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <netinet/in.h>
-#include <sys/un.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <iostream>
+#include <unistd.h> // for sleep()
 #include <netdb.h>
-#include <errno.h>
-#include <unistd.h>
-#include <pthread.h>
+#include <arpa/inet.h>
+#include <cstring>
+#include <string>
+#include <sys/wait.h> // for forking io_process process
+#include <sys/types.h>
+#include <sys/time.h>
+#include <vector> 
+#include <fstream>
+#include <sstream>
 
 extern "C" {
     #include "common/net_wrapper.h" 
@@ -71,17 +26,42 @@ extern "C" {
     #include "config/cJSON.h"
     #include "config/config_helpers.h"
     #include "spines/libspines/spines_lib.h" // for spines functions e.g. spines_sendto()
+    #include "prime/libspread-util/include/spu_events.h" // import libspread. for its event handler functions
 }
 
-#define MAX_PATH 1000
-
-// TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
+// // defines:
+#define DEFAULT_IO_PROCESS_PATH "./io_process/io_process"
+#define IPC_FROM_IOPROC_CHILD "/tmp/ssproxy_ipc_ioproc_to_proxy"
+#define IPC_TO_IOPROC_CHILD "/tmp/ssproxy_ipc_proxy_to_ioproc"
+#define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
 #define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
 #define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
 #define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
 #define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
 #define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
+
+// // structs:
+struct io_process_data_struct {
+    std::string io_binary_path;
+    std::string spines_ip;
+    int spines_port;
+    std::string ipc_path_suffix;
+};
+struct data_collector_addr_struct {
+    std::string dc_ip;
+    int dc_port;
+    std::string spines_ip;
+    int spines_port;
+    sockaddr_in dc_sockaddr_in;
+};
+struct sockets_struct {
+    std::vector<int> from_ioproc_via_ipc; // for messages coming from the I/O processes
+    std::vector<int> to_ioproc_via_ipc; // for sending messages to the I/O processes
+    int to_data_collector_via_spines;
+    int to_from_rtus_plcs_via_ipc[NUM_PROTOCOLS];
+};
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
@@ -89,129 +69,473 @@ struct data_collector_packet {
     signed_message system_message;
 }; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
 
-int data_collector_isinsystem = 0; // bool
-int shadow_isinsystem = 0; // bool
-char* spinesd_ip_addr; // spines daemon addr
-int spinesd_port;    // spines daemon port
-char* dc_spinesd_ip_addr; // data collector addr
-int dc_spinesd_port;    // data collector port
-char* shadow_spinesd_ip_addr; // data collector addr
-int shadow_spinesd_port;    // data collector port
-// itrc_data shadow_itrc_main, shadow_itrc_thread;
-// pthread_t shadow_itrc_thread_tid;
-// int shadow_ipc_sock;
-int dc_proto, dc_spines_sock, dc_ret;
-struct timeval dc_spines_timeout, *dc_t;
-int dc_conn_successful = 0;
-struct sockaddr_in dc_dest;
+// // global variables:
+bool data_collector_isinsystem = false;
+int num_of_systems = 0;
+int active_system_index = -1;
+sockets_struct sockets;
+std::vector<io_process_data_struct> io_processes_data;
+data_collector_addr_struct data_collector_addr = {.dc_ip="", .dc_port=-1, .spines_ip="", .spines_port=-1, .dc_sockaddr_in={}}; // initialize
+// vars relevant to PLCs/RTUs
+int num_of_plc_rtus = -1;
+itrc_data protocol_data[NUM_PROTOCOLS];
+bool ipc_index_used_for_message_broker[NUM_PROTOCOLS];
+std::string proxy_id;
 
-// shadow_io:
-#define IPC_FROM_SHADOWIO_CHILD "/tmp/ssproxy_ipc_shadowio_to_proxy"
-#define IPC_TO_SHADOWIO_CHILD "/tmp/ssproxy_ipc_proxy_to_shadowio"
-int ipc_sock_to_shadowio_child, ipc_sock_from_shadowio_child;
-char * shadow_io_path = "./shadow_io/shadow_io";
-char * shadow_spire_dir = "./"; // if the user doesn't provide the shadow spire directory, then just default to using the same keys as the main ones. (note that the directory structure is exactly the same for the main and shadow since the shadow is supposed to the exact same version of the code just compiled with different config files).
-
-extern int32u My_Global_Configuration_Number;
-
+// // function declarations:
+void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr);
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem);
+void init_rtus_plcs_listen_thread(pthread_t &thread);
+void setup_data_collector_spines_sock();
+void send_to_data_collector(signed_message *msg, int nbytes, int stream);
+void init_io_procs();
+void init_io_proc_message_handlers(pthread_t &message_events_thread);
+void init_message_broker_processes_and_sockets();
+int string_to_protocol(char * prot);
 void Process_Config_Msg(signed_message * conf_mess,int mess_size);
-int usage_check(int ac);
-int parse_args(int ac, char **av);
-int send_to_data_collector(signed_message *msg, int nbytes, int stream);
-void setup_connection_to_data_collector();
-void setup_ipc_with_shadow_io();
-void send_to_shadow(signed_message *msg, int nbytes);
 
-// conver string to protocol enum
-int string_to_protocol(char * prot) {
-    int p_n;
-    if(strcmp(prot, "modbus") == 0) {
-        p_n = MODBUS;
+// function definitions:
+int main(int ac, char **av) {
+    // read input args and store the data in the data structures:
+    parse_args(ac, av, io_processes_data, data_collector_addr);
+    
+    // set up for communication with the Data Collector
+    if (data_collector_isinsystem) {
+        setup_data_collector_spines_sock();
     }
-    else if(strcmp(prot, "dnp3") ==0) {
-        p_n = DNP3;
-    }
-    else {
-        fprintf(stderr, "Protocol: %s not supported\n", prot);
-        exit(1);
-    }
-    return p_n;
 
+    // initializes and fork the message broker processes. also set up for communication with the:
+    init_message_broker_processes_and_sockets();
+
+    // initialize and set up the thread that listens for messages from the PLCs/RTUs:
+    pthread_t rtus_plcs_listen_thread;
+    init_rtus_plcs_listen_thread(rtus_plcs_listen_thread);
+
+    // initialize and fork the I/O processes:
+    init_io_procs();
+
+    // initialize and set up the threads for the message handler for the messages from the I/O processes:
+    pthread_t io_procs_message_events_thread;
+    init_io_proc_message_handlers(io_procs_message_events_thread);
+
+    // wait for the threads before exiting
+    pthread_join(rtus_plcs_listen_thread, NULL);
+    pthread_join(io_procs_message_events_thread, NULL);
+
+    return 0;
 }
 
-/* RTU Proxy implementation */
-int main(int argc, char *argv[])
-{
-    int i, num, ret, nBytes, sub,ret2;
-    int ipc_sock;
-    struct timeval now;
-    // struct sockaddr_in;
+void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr) {
+    bool one_default_sys = false;
+    bool case_named_pipe = false;
+
+    if (ac == 4) { // running with just the one active system
+        one_default_sys = true;
+        data_collector_isinsystem = false;
+    }
+    else if (ac == 5) { // running with the one active system and the data collector
+        one_default_sys = true;
+        data_collector_isinsystem = true;
+    }
+    else if (ac == 6) {  
+        // running with the main system, the data collector, and shadow system(s).
+        // check the else statement for details on how it is expected to work
+        
+        case_named_pipe =  true;
+        data_collector_isinsystem = false;  // to be determined by reading the named pipe/file. will change to true if have a data collector otherwise keeping it at false
+    }
+    else { // TODO: what if different active sys index is given at start (as compared to the other proxy)?
+        std::cout 
+        << "Invalid args\n" 
+        << "Usage: ./proxy proxyID spinesAddr:spinesPort Num_PLC_RTU [dataCollectorAddr:dataCollectorPort] [named pipe name or file name to use multiple systems]\n" 
+        << "If you want to run with shadow/twin systems: for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems\n" 
+        << "For the named pipe/file, this program will expect the first line to be: `active_system_index data_collector_is_in_system`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on. `data_collector_is_in_system` can be set to 0 (false) and 1 (true) to specify whether or not there is going to be a data collector in the system. Note that there is a single space between these two.\n" 
+        << "2nd line and onwards are expected to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath\n" 
+        << "If this arg is provided:\n\tIf is is specified that we will have a data collector, then the first argument will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector.\n\tOtherwise, if is is specified that we will NOT have a data collector, then the first two arguments are ignored.\n";
+             
+        exit(EXIT_FAILURE);
+    }
+
+    if (one_default_sys) {
+        num_of_systems = 1;
+        active_system_index = 0;
+
+        int colon_pos = -1;
+        std::string spinesd_arg = av[2];
+        colon_pos = spinesd_arg.find(':');
+        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
+        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+
+        io_process_data_struct this_io_proc;
+        this_io_proc.io_binary_path = DEFAULT_IO_PROCESS_PATH;
+        this_io_proc.spines_ip = spinesd_ip_addr;
+        this_io_proc.spines_port = spinesd_port;
+        this_io_proc.ipc_path_suffix = "0";
+        
+        io_process_data.push_back(this_io_proc);
+        
+        proxy_id = av[1];
+        num_of_plc_rtus = atoi(av[3]);
+    }
+
+    if (case_named_pipe) {
+        std::string pipe_name = av[5];
+        read_named_pipe(pipe_name, io_process_data, data_collector_isinsystem);
+    }
+
+    if (data_collector_isinsystem) {
+        // ip and port for the data collector process
+        std::string dc_arg = av[4];
+        int colon_pos = -1;
+        colon_pos = dc_arg.find(':');
+        std::string dc_ip_addr = dc_arg.substr(0, colon_pos);
+        int dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
+        data_collector_addr.dc_ip = dc_ip_addr;
+        data_collector_addr.dc_port = dc_port;
+
+        // spines ip, port to use for comm. with the data collector
+        colon_pos = -1;
+        std::string spinesd_arg = av[1];
+        colon_pos = spinesd_arg.find(':');
+        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
+        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+        data_collector_addr.spines_ip = spinesd_ip_addr;
+        data_collector_addr.spines_port = spinesd_port;
+
+        // set up the sockaddr_in data struct:
+        data_collector_addr.dc_sockaddr_in.sin_family = AF_INET;
+        data_collector_addr.dc_sockaddr_in.sin_port = htons(data_collector_addr.dc_port);
+        data_collector_addr.dc_sockaddr_in.sin_addr.s_addr = inet_addr(data_collector_addr.dc_ip.c_str());
+    }
+}
+
+void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem) {
+    std::ifstream pipe_file(pipe_name);
+    if(pipe_file.fail()){
+        std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
+        exit(EXIT_FAILURE);
+    }
+    std::string line;
+    bool is_first_line = true;
+    int num_sys_count = 0;
+    while (std::getline(pipe_file, line)) {
+        char *line_cstr = strdup(line.c_str());
+        io_process_data_struct this_io_proc;
+        if (is_first_line) {
+            is_first_line = false;    
+            active_system_index = atoi(strtok(line_cstr, " "));
+            int dc_isinsystem_int = atoi(strtok(NULL, " "));
+            if (dc_isinsystem_int != 1 || dc_isinsystem_int != 0) {
+                std::cout << "Invalid value for `data_collector_isinsystem` in the named pipe/file\n";
+                exit(EXIT_FAILURE);
+            }
+            data_collector_isinsystem = dc_isinsystem_int == 1? true: false;
+        }
+        else {
+            num_sys_count++;
+
+            // io_proc binary to use:
+            this_io_proc.io_binary_path = strtok(line_cstr, " ");
+
+            // spines ip addr and port to use with this io_process:
+            int colon_pos = -1;
+            std::string ip_and_port = strtok(NULL, " ");
+            colon_pos = ip_and_port.find(':');
+            std::string ip_addr = ip_and_port.substr(0, colon_pos);
+            int port = std::stoi(ip_and_port.substr(colon_pos + 1));
+            this_io_proc.spines_ip = ip_addr;
+            this_io_proc.spines_port = port;
+            
+            // suffix for the ipc path
+            this_io_proc.ipc_path_suffix = strtok(NULL, " ");
+
+            // save:
+            io_processes_data.push_back(this_io_proc);
+        }
+        num_of_systems = num_sys_count;
+
+        free(line_cstr);
+    }
+}
+
+void *listen_on_rtus_plcs_sock(void *arg) {
+    // Receives any messages. Send them to all I/O processes
+    UNUSED(arg);
+
     fd_set mask, tmask;
-    char buff[MAX_LEN];
+    int num;
+    int nBytes;
+    int ret;
     signed_message *mess;
+    char buff[MAX_LEN];
     rtu_data_msg *rtud;
-    itrc_data protocol_data[NUM_PROTOCOLS];
-    itrc_data itrc_main, itrc_thread;
-    int ipc_used[NUM_PROTOCOLS];
-    int ipc_s[NUM_PROTOCOLS];
     seq_pair *ps;
-    char *ip_ptr;
-    int pid;
-    char *buffer;
-    char path[MAX_PATH];
-    pthread_t tid;
-    int num_locations;
 
-    setlinebuf(stdout);
+    FD_ZERO(&mask);
+    for(int i = 0; i < NUM_PROTOCOLS; i++) {
+        if(ipc_index_used_for_message_broker[i]){
+            FD_SET(sockets.to_from_rtus_plcs_via_ipc[i], &mask);
+            std::cout << "FD_SET on ipc_s["<< i << "]\n";
+        }
+    }
+
+    while (1) {
+        tmask = mask;
+        num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
+        if (num > 0) {
+            for(int i = 0; i < NUM_PROTOCOLS; i++) {
+                if (ipc_index_used_for_message_broker[i] != true) {
+                    continue;
+                }
+                /* Message from a message broker */
+                if (FD_ISSET(sockets.to_from_rtus_plcs_via_ipc[i], &tmask)) {
+                    nBytes = IPC_Recv(sockets.to_from_rtus_plcs_via_ipc[i], buff, MAX_LEN);
+                    mess = (signed_message *)buff;
+                    mess->global_configuration_number = My_Global_Configuration_Number;
+                    rtud = (rtu_data_msg *)(mess + 1);
+                    ps = (seq_pair *)&rtud->seq;
+                    ps->incarnation = My_Incarnation;
+                    
+                    for (int j = 0; j < num_of_systems; j++) {
+                        std::string system_info = (num_of_systems == 1)? ".": " # "+ std::to_string(j) + "/" + std::to_string(num_of_systems) + ".";
+                        std::cout << "PROXY: message from plc, sending data to SM" << system_info << "\n";
+                        ret = IPC_Send(sockets.to_ioproc_via_ipc[i], (void *)mess, nBytes, (IPC_TO_IOPROC_CHILD + io_processes_data[i].ipc_path_suffix).c_str());
+                        if(ret != nBytes){
+                            std::cout << "PROXY: error sending to SM. ret = " << ret << "\n";
+                        }
+                        else {
+                            std::cout << "PROXY: message sent successfully. ret = " << ret << "\n";
+                        }
+                    }
+
+                    // send to data collector (if it is in the system)
+                    if (data_collector_isinsystem) {
+                        // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
+                        std::cout << "sending message to data collector\n";
+                        send_to_data_collector(mess, nBytes, RTU_PROXY_RTU_DATA);
+                    }
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+void init_rtus_plcs_listen_thread(pthread_t &thread) {
+    // The thread listens for command messages coming from the RTUs/PLCs and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
+    pthread_create(&thread, NULL, &listen_on_rtus_plcs_sock, NULL);
+}
+
+void setup_data_collector_spines_sock() {
+    int proto;//, num, ret;
+    int spines_timeout;
     
-    // parse args. if parse_args returns 0 then invalid args were provided and so return (i.e. exit)
-    if (parse_args(argc, argv) == 0) {
-        return 0;
-    }
+    proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
+    
+    /* Setup the spines timeout frequency - if disconnected, will try to reconnect
+     *  this often */
+    spines_timeout = DATA_COLLECTOR_SPINES_CONNECT_SEC;
 
-    // set up socket for data collector connection
-    if (data_collector_isinsystem == 1) { // init these only if there is a data_collector in the system
-        setup_connection_to_data_collector();
+    sockets.to_data_collector_via_spines = -1; // -1 is not a real socket so init to that
+    while (1)
+    {   
+        sockets.to_data_collector_via_spines = Spines_SendOnly_Sock(data_collector_addr.spines_ip.c_str(), data_collector_addr.spines_port, proto);
+        if (sockets.to_data_collector_via_spines < 0) {
+            std::cout << "setup_data_collector_spines_sock(): Unable to connect to Spines, trying again soon\n";
+            sleep(spines_timeout);
+        }
+        else {
+            std::cout << "setup_data_collector_spines_sock(): Connected to Spines\n";
+            break;
+        }
+    }
+}
+
+void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
+    int ret;
+    std::cout << "Forwarding a message to the data collector\n";
+    
+    data_collector_packet data_packet;
+    data_packet.data_stream = stream;
+    data_packet.system_message = *msg;
+    data_packet.nbytes_mess = nbytes;
+    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
+
+    ret = spines_sendto(sockets.to_data_collector_via_spines, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&data_collector_addr.dc_sockaddr_in, sizeof(struct sockaddr));
+    std::cout <<"Sent to data collector with return code ret = " << ret << "\n";
+}
+
+void setup_ipc_sockets_for_io_proc(int system_index) {
+    sockets.to_ioproc_via_ipc[system_index] = IPC_DGram_SendOnly_Sock(); // for sending something TO the child process
+    sockets.from_ioproc_via_ipc[system_index] = IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str()); // for receiving something FROM the child process
+}
+
+void init_io_procs() {
+    std::vector<pid_t> pids;
+    
+    for (int i=0; i < num_of_systems; i++) {
+        // set up the IPC connection using which we will talk to the child process:
+        setup_ipc_sockets_for_io_proc(i);
+
+        // Start the child process:
+        pid_t pid;
+        pids.push_back(pid);
+
+        std::cout << "Starting io_process";
+        if (num_of_systems > 1) {
+            std::cout << "# " << i << "/" << num_of_systems;
+        }
+        std::cout << "\n";
+        
+        // child -- run program on path
+        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
+        char* child_proc_cmd[6] = { 
+            const_cast<char*>(io_processes_data[i].io_binary_path.c_str()), 
+            const_cast<char*>(io_processes_data[i].spines_ip.c_str()), 
+            const_cast<char*>(std::to_string(io_processes_data[i].spines_port).c_str()),
+            const_cast<char*>(io_processes_data[i].ipc_path_suffix.c_str()),
+            const_cast<char*>(proxy_id.c_str()),
+            NULL
+        };
+
+        if ((pid = fork()) < 0) { // error case
+            std::cout << "Error: fork returned pid < 0\n";
+            exit(EXIT_FAILURE);
+        }
+        else if(pid == 0) { 
+            // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
+            std::cout << "The child process' pid is: " << getpid() << "\n";
+            if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
+                std::cout << "Error in starting the process. errorno = "<< errno << "\n";
+                exit(EXIT_FAILURE); // exit child
+            }
+        }
+    }
+}
+
+void io_proc_message_handler(int socket_to_use, int code, void *data)
+{   
+    // This function runs for each message that is received. First it received the message on the socker. Then, if the message is from the active system, it is sent to the RTUs/PLCs. Finally, if there is a data collector in the system, it forwards the message to the data collector. 
+    // It is called by listen_for_messages_from_ioproc()
+
+    UNUSED(data);
+    int message_is_from = code;
+
+    int ret; 
+    int nbytes;
+    char buffer[MAX_LEN];
+    signed_message *mess;
+
+    std::cout << "There is a message from system #" << message_is_from << ":\n";
+
+    // Receive the message on the socket
+    ret = IPC_Recv(socket_to_use, buffer, MAX_LEN);
+    if (ret < 0) std::cout << "I/O process message handler for process # " << message_is_from << ": IPC_Rev failed.\n";
+    mess = (signed_message *)buffer;
+    nbytes = sizeof(signed_message) + mess->len;
+
+    // Special Processing for reconfiguration message
+    if(mess->type ==  PRIME_OOB_CONFIG_MSG){
+        std::cout << "PROXY: processing OOB CONFIG MESSAGE\n";
+        Process_Config_Msg((signed_message *)buffer, ret);
     }
     
-    My_Global_Configuration_Number=0;
-    Init_SM_Replicas();
+    // If the message is from the active system, send to the the message broker (modbus/dnp3 process) for sending further down to the RTUs/PLCs:
+    if (message_is_from == active_system_index) {
+        // IPC_Send(sockets.to_hmi_via_ipc, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
+        int in_list, rtu_dst, channel, ret2;
 
-    /* zero ipc_used */
-    for(i=0; i < NUM_PROTOCOLS; i++) {
-        ipc_used[i] = 0;
+        rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
+        /* enqueue in correct ipc */
+        in_list = key_value_get(rtu_dst, &channel);
+        if(in_list) {
+            std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << sockets.to_from_rtus_plcs_via_ipc[channel] << "at path: " << protocol_data[channel].ipc_remote << "\n";
+            ret2 = IPC_Send(sockets.to_from_rtus_plcs_via_ipc[channel], buffer, nbytes, 
+                        protocol_data[channel].ipc_remote);
+            if(ret2 != nbytes) {
+                std::cout << "PROXY: error delivering to RTU\n";
+            }
+            else{
+                std::cout << "PROXY: delivered to RTU\n";
+            }
+        }
+        else {
+            std::cout << "Error: Message from spines for rtu: " << rtu_dst << ", not my problem\n";
+        }
+
+        std::cout << "I/O process message handler for process # " << message_is_from << ": " << "The message has been forwarded to the RTUs/PLCs\n";
     }
 
+    if (data_collector_isinsystem) {
+        // Forward to the Data Collector:
+        send_to_data_collector(mess, nbytes, message_is_from == active_system_index? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
+    }
+}
+
+void *listen_for_messages_from_ioproc(void *arg) {
+    // sets up events handler. This events handler is triggered when a message is received from an I/O process
+
+    UNUSED(arg);
+
+    E_init(); // initialize libspread event handler
+        
+    for (int i=0; i < num_of_systems; i++) {
+        // Listen on the socket for this I/O process and run 
+        E_attach_fd(sockets.from_ioproc_via_ipc[i], READ_FD, io_proc_message_handler, i, NULL, MEDIUM_PRIORITY);
+    }
+    
+    E_handle_events();
+
+    return NULL;
+}
+
+void init_io_proc_message_handlers(pthread_t &thread) {
+    // create a thread that sets up events handler. This events handler is triggered when a message is received from an I/O process
+    pthread_create(&thread, NULL, &listen_for_messages_from_ioproc, NULL);
+}
+
+void init_message_broker_processes_and_sockets() {
+    std::vector<pid_t> pids;
+
+    /* initialize ipc_index_used_for_message_broker */
+    for(int i=0; i < NUM_PROTOCOLS; i++) {
+        ipc_index_used_for_message_broker[i] = false;
+    }
+    
+    struct timeval now;
     gettimeofday(&now, NULL);
     My_Incarnation = now.tv_sec;
-    sub = atoi(argv[1]);
-    My_ID = sub;
-    printf("scanning json\n");
+    My_ID = std::stoi(proxy_id);
+    std::cout << "scanning json\n";
 
     // parse config into string and then parse json
+    char *buffer;
     buffer = config_into_buffer();
     cJSON * root = cJSON_Parse(buffer);
     free(buffer);
 
-    printf("finding location in json\n");
+    std::cout << "finding location in json\n";
     // find my location in the json file
     cJSON * my_loc;
     cJSON * locations = cJSON_GetObjectItem(root, "locations");
+    int num_locations;
     num_locations = cJSON_GetArraySize(locations);
-    for(i = 0 ; i < num_locations ; i++) {
+    int i;
+    for(i = 0; i < num_locations; i++) {
         cJSON * loc = cJSON_GetArrayItem(locations, i);
         if(My_ID == cJSON_GetObjectItem(loc, "ID")->valueint) {
-            printf("Found my loc: %d\n",My_ID);
+            std::cout << "Found my loc: " << My_ID << "\n";
             my_loc = loc;
             break;
         }
     }
     if (i == num_locations) {
-        printf("My id is not in config.json file!\n");
-        exit(0);
+        std::cout << "My id is not in config.json file!\n";
+        exit(EXIT_FAILURE);
     }
 
-    printf("PROXY: finding what protocols I support\n");
+    std::cout << "PROXY: finding what protocols I support\n";
     // figure out which protocols I support, set up those sockets
     cJSON * protocols = cJSON_GetObjectItem(my_loc, "protocols");
     for(i = 0; i < cJSON_GetArraySize(protocols); i++) {
@@ -221,33 +545,56 @@ int main(int argc, char *argv[])
         memset(&protocol_data[p_n], 0, sizeof(itrc_data));
         sprintf(protocol_data[p_n].prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
         sprintf(protocol_data[p_n].sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        sprintf(protocol_data[p_n].ipc_local, "%s%s%d", (char *)RTU_IPC_ITRC, 
-                prot, My_ID);
-        sprintf(protocol_data[p_n].ipc_remote, "%s%s%d", (char *)RTU_IPC_MAIN,
-                prot, My_ID);
-        ipc_used[p_n] = 1;
-        ipc_s[p_n] = IPC_DGram_Sock(protocol_data[p_n].ipc_local);
-        printf("Create IPC_DGram_Sock ipc_s[%d]=%d\n",p_n,ipc_s[p_n]);
-
-        /* Start protocol threads */
-        sprintf(path, "../%s/%s_master", prot, prot);
-        printf("PROXY: Starting program at path: %s\n", path);
-        pid = fork();
-        //child -- run program on path
-        char* args_for_modbus[4] = {argv[0], argv[1], argv[2], argv[3]};
-        if(pid == 0) {
-            // execv(path, &argv[0]);
-            execv(path, &args_for_modbus[0]);
-        } 
-        else if(pid < 0) {
-            perror("Fork returned below 0 pid");
-            exit(1);
+        sprintf(protocol_data[p_n].ipc_local, "%s%s%d", (char *)RTU_IPC_ITRC, prot, My_ID);
+        sprintf(protocol_data[p_n].ipc_remote, "%s%s%d", (char *)RTU_IPC_MAIN, prot, My_ID);
+        ipc_index_used_for_message_broker[p_n] = true;
+        sockets.to_from_rtus_plcs_via_ipc[p_n] = IPC_DGram_Sock(protocol_data[p_n].ipc_local);
+        std::cout << "Create IPC_DGram_Sock sockets.to_from_rtus_plcs_via_ipc[" << p_n << "]=" << sockets.to_from_rtus_plcs_via_ipc[p_n] << "\n";
+    
+        // Start the child process:
+        pid_t pid;
+        pids.push_back(pid);
+        std::stringstream process_path_strstream;
+        process_path_strstream << "../" << prot << "/" << prot << "_master";
+        std::string process_path = process_path_strstream.str();
+        
+        std::cout << "Starting message broker process";
+        if (num_of_systems > 1) {
+            std::cout << "# " << i << "/" << cJSON_GetArraySize(protocols);
         }
-
+        std::cout << "\n";
+        
+        // child -- run program on path
+        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
+        std::string caller = "proxy";
+        std::string id = proxy_id;
+        std::string spines_ip_port = "";
+        spines_ip_port = spines_ip_port + data_collector_addr.spines_ip + std::to_string(data_collector_addr.spines_port); // ip:port for main/peripheries spines daemon
+        std::string Num_RTU_Emulated = std::to_string(num_of_plc_rtus);
+        char* child_proc_cmd[5] = { 
+            const_cast<char*>(caller.c_str()), 
+            const_cast<char*>(id.c_str()), 
+            const_cast<char*>(spines_ip_port.c_str()),
+            const_cast<char*>(Num_RTU_Emulated.c_str()),
+            NULL
+        };
+        
+        if ((pid = fork()) < 0) { // error case
+            std::cout << "Error: fork returned pid < 0\n";
+            exit(EXIT_FAILURE);
+        }
+        else if(pid == 0) { 
+            // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
+            std::cout << "The child process' pid is: " << getpid() << "\n";
+            if (execv(process_path.c_str(), child_proc_cmd) < 0) {
+                std::cout << "Error in starting the process. errorno = "<< errno << "\n";
+                exit(EXIT_FAILURE); // exit child
+            }
+        }
     }
-
-    sleep(2);
-    printf("PROXY: filling in key value data structure\n");
+    
+    sleep(2); // TODO: this is carried over from the old codebase. Not sure why this is needed. If this is for sync purposes, there are better ways for that.
+    std::cout << "PROXY: filling in key value data structure\n";
     fflush(stdout);
     // Figure out what RTU's I have to send to and place map the
     // id to a protocol
@@ -259,392 +606,31 @@ int main(int argc, char *argv[])
         int rtu_id = cJSON_GetObjectItem(rtu, "ID")->valueint;
         int rtu_protocol = string_to_protocol(prot_str);
         key_value_insert(rtu_id, rtu_protocol);
-        printf("key value insert id=%d, protocol %d\n",rtu_id,rtu_protocol);
+        std::cout << "key value insert id=" << rtu_id << ", protocol " << rtu_protocol << "\n";
     } 
 
     // Delete CJSON reference
     cJSON_Delete(root);
+}
 
-    // Net Setup
-    Type = RTU_TYPE;
-    //Prime_Client_ID = (NUM_SM + 1) + My_ID;
-    Prime_Client_ID = MAX_NUM_SERVER_SLOTS + My_ID;
-    My_IP = getIP();
-
-    // Setup IPC for the RTU Proxy main thread
-    printf("PROXY: Setting up IPC for RTU proxy thread\n");
-    memset(&itrc_main, 0, sizeof(itrc_data));
-    sprintf(itrc_main.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-    sprintf(itrc_main.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-    sprintf(itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN, My_ID);
-    sprintf(itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC, My_ID);
-    ipc_sock = IPC_DGram_Sock(itrc_main.ipc_local);
-
-    // Setup IPC for the Worker Thread (running the ITRC Client)
-    memset(&itrc_thread, 0, sizeof(itrc_data));
-    sprintf(itrc_thread.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-    sprintf(itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-    sprintf(itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC, My_ID);
-    sprintf(itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN, My_ID);
-    ip_ptr = spinesd_ip_addr;
-    sprintf(itrc_thread.spines_ext_addr, "%s", ip_ptr);
-    sprintf(ip_ptr, "%d", spinesd_port); // essentially equal to ip_ptr = to_char_ptr(spinesd_port);
-    sscanf(ip_ptr, "%d", &itrc_thread.spines_ext_port);
-
-    
-    
-    ///////////////////////////
-    if (shadow_isinsystem == 1) {
-        // // Setup IPC for the RTU Proxy main thread
-        // printf("PROXY: Setting up IPC for RTU proxy thread (For Shadow)\n");
-        // memset(&shadow_itrc_main, 0, sizeof(itrc_data));
-        // sprintf(shadow_itrc_main.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-        // sprintf(shadow_itrc_main.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        // sprintf(shadow_itrc_main.ipc_local, "%s%d", (char *)RTU_IPC_MAIN_IOPROC, My_ID);
-        // sprintf(shadow_itrc_main.ipc_remote, "%s%d", (char *)RTU_IPC_ITRC_IOPROC, My_ID);
-        // shadow_ipc_sock = IPC_DGram_Sock(shadow_itrc_main.ipc_local);
-
-        // // Setup IPC for the Worker Thread (running the ITRC Client)
-        // memset(&shadow_itrc_thread, 0, sizeof(itrc_data));
-        // sprintf(shadow_itrc_thread.prime_keys_dir, "%s", (char *)PROXY_PRIME_KEYS);
-        // sprintf(shadow_itrc_thread.sm_keys_dir, "%s", (char *)PROXY_SM_KEYS);
-        // sprintf(shadow_itrc_thread.ipc_local, "%s%d", (char *)RTU_IPC_ITRC_IOPROC, My_ID);
-        // sprintf(shadow_itrc_thread.ipc_remote, "%s%d", (char *)RTU_IPC_MAIN_IOPROC, My_ID);
-        // // ip_ptr = strtok(argv[2], ":");
-        // ip_ptr = shadow_spinesd_ip_addr; // TODO: do i need a diff ip_ptr for shadow?
-        // sprintf(shadow_itrc_thread.spines_ext_addr, "%s", ip_ptr);
-        // // ip_ptr = strtok(NULL, ":");
-        // sprintf(ip_ptr, "%d", shadow_spinesd_port); // essentially equal to ip_ptr = to_char_ptr(shadow_spinesd_port);
-        // sscanf(ip_ptr, "%d", &shadow_itrc_thread.spines_ext_port);
-        
-        /* Start shadow_io proc */
-        printf("Starting shadow_io proc\n");
-        setup_ipc_with_shadow_io();
-        pid_t pid;
-        //child -- run program on path
-        // char * arg_shadow_ipaddr;
-        // sprintf(arg_shadow_ipaddr, "%s", shadow_spinesd_ip_addr); // essentially equal to arg_shadow_ipaddr = shadow_spinesd_ip_addr.c_str()
-        char arg_shadow_port[5]; // since the largest possible port is 65,535. size = 5 should be sufficient
-        sprintf(arg_shadow_port, "%d", shadow_spinesd_port);
-        // char * arg_shadow_dir;
-        // sprintf(arg_shadow_dir, "%s", shadow_spire_dir);
-        char arg_my_id[4]; // My_ID is a small number. lets say max possible is 1000. that requires size 4. TODO: is this fine?
-        sprintf(arg_my_id, "%d", My_ID);
-        // by convention, arg 0 is prog name, and the whole array is required to be NULL terminated by exev fn
-        // char* args_for_shadow_io[6] = {shadow_io_path, arg_shadow_ipaddr, arg_shadow_port, arg_shadow_dir, arg_my_id, NULL};
-        char* args_for_shadow_io[6] = {shadow_io_path, shadow_spinesd_ip_addr, arg_shadow_port, shadow_spire_dir, arg_my_id, NULL};
-        if ((pid = fork()) < 0) { // error case
-            printf("Error: fork returned pid < 0\n");
-            exit(1);
-        }
-        else if(pid == 0) { 
-            // only child proc will run this. parent moves to the very next line after the end of 'if (shadow_isinsystem)' if statement
-            printf("The child proc's pid is: %d\n", getpid());
-            if (execv(shadow_io_path, &args_for_shadow_io[0]) < 0) {
-                printf("error starting shadow_io. errorno = %d\n", errno);
-                exit(1); // exit child
-            }
-        } 
-        // no need to separately make a thread to listen for updates from shadow_io. that itrc handler checks for that
+int string_to_protocol(char * prot) {
+    // conver string to protocol enum
+    int p_n;
+    if(strcmp(prot, "modbus") == 0) {
+        p_n = MODBUS;
     }
-
-    ///////////////////////////
-
-
-
-    printf("PROXY: Setting up ITRC Client thread\n");
-    pthread_create(&tid, NULL, &ITRC_Client, (void *)&itrc_thread);
-    // fflush(stdout);
-
-    FD_ZERO(&mask);
-    for(i = 0; i < NUM_PROTOCOLS; i++) 
-        if(ipc_used[i] == 1){
-            FD_SET(ipc_s[i], &mask);
-            printf("FD_SET on ipc_s[%d]\n",i);
-        }
-    FD_SET(ipc_sock, &mask);
-
-
-
-    if (shadow_isinsystem == 1) {
-        // printf("PROXY: Setting up ITRC Client thread (For Shadow)\n");
-        // pthread_create(&shadow_itrc_thread_tid, NULL, &ITRC_Client, (void *)&shadow_itrc_thread);
-        // FD_SET(shadow_ipc_sock, &mask); // shadow
-        FD_SET(ipc_sock_from_shadowio_child, &mask); // shadow
+    else if(strcmp(prot, "dnp3") ==0) {
+        p_n = DNP3;
     }
-
-    while (1) {
-
-        tmask = mask;
-        num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
-
-        if (num > 0) {
-            
-            /* Message from ITRC */
-            if (FD_ISSET(ipc_sock, &tmask)) {
-                int in_list;
-                int channel;
-                int rtu_dst;
-                ret = IPC_Recv(ipc_sock, buff, MAX_LEN);
-                if (ret <= 0) {
-                    printf("Error in IPC_Recv: ret = %d, dropping!\n", ret);
-                    continue;
-                }
-                mess = (signed_message *)buff;
-                nBytes = sizeof(signed_message) + (int)mess->len;
-                
-                if (data_collector_isinsystem == 1) {
-                    // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
-                    printf("sending main's message to data collector\n");
-                    // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                    dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_MAIN_MSG);
-                    if (dc_ret < 0) {
-                        printf("Failed to send message to data collector.  ret = ");
-                    }
-                    else {
-                        printf("message sent to data collector. ret = ");
-                    }
-                    printf("%d\n", dc_ret);
-                }
-
-                if(mess->type ==  PRIME_OOB_CONFIG_MSG){
-                    printf("PROXY: processing OOB CONFIG MESSAGE\n");
-                    Process_Config_Msg((signed_message *)buff,ret);
-                    continue;
-                }
-                rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
-                /* enqueue in correct ipc */
-                in_list = key_value_get(rtu_dst, &channel);
-                if(in_list) {
-                    printf("PROXY: Delivering msg to RTU channel %d at %d at path:%s\n",channel,ipc_s[channel],protocol_data[channel].ipc_remote);
-                    ret2=IPC_Send(ipc_s[channel], buff, nBytes, 
-                             protocol_data[channel].ipc_remote);
-                    if(ret2!=nBytes){
-                        printf("PROXY: error delivering to RTU\n");
-                    }
-                    else{
-                        printf("PROXY: delivered to RTU\n");
-                    }
-                }
-                else {
-                    fprintf(stderr, 
-                            "Message from spines for rtu: %d, not my problem\n",
-                             rtu_dst);
-                    continue;
-                }
-            }
-            
-            if (shadow_isinsystem == 1) {
-                /* Message from ITRC (Shadow) */
-                // if (FD_ISSET(shadow_ipc_sock, &tmask)) {
-                if (FD_ISSET(ipc_sock_from_shadowio_child, &tmask)) {
-                    int in_list;
-                    int channel;
-                    int rtu_dst;
-                    // ret = IPC_Recv(shadow_ipc_sock, buff, MAX_LEN);
-                    ret = IPC_Recv(ipc_sock_from_shadowio_child, buff, MAX_LEN);
-                    if (ret <= 0) {
-                        printf("Error in IPC_Recv (for shadow): ret = %d, dropping!\n", ret);
-                        continue;
-                    }
-                    mess = (signed_message *)buff;
-                    nBytes = sizeof(signed_message) + (int)mess->len;
-                    
-                    if (data_collector_isinsystem == 1) {
-                        // sending to data collector (this is a message that this proxy received from SMs (via itrc client) and it is sending to an rtu/plc:
-                        printf("sending shadow's message to data collector\n");
-                        // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_SHADOW_MSG);
-                        if (dc_ret < 0) {
-                            printf("Failed to send message to data collector.  ret = ");
-                        }
-                        else {
-                            printf("message sent to data collector. ret = ");
-                        }
-                        printf("%d\n", dc_ret);
-                    }
-                    // dont need to do anything else with it as this message is from the shadow (only main's messages are sent to rtus/plcs)
-                }
-            }
-            
-            for(i = 0; i < NUM_PROTOCOLS; i++) {
-                if(ipc_used[i] != 1) 
-                    continue;
-                /* Message from a proxy */
-                if (FD_ISSET(ipc_s[i], &tmask)) {
-                    nBytes = IPC_Recv(ipc_s[i], buff, MAX_LEN);
-                    mess = (signed_message *)buff;
-                    mess->global_configuration_number = My_Global_Configuration_Number;
-                    rtud = (rtu_data_msg *)(mess + 1);
-                    ps = (seq_pair *)&rtud->seq;
-                    ps->incarnation = My_Incarnation;
-                    printf("PROXY: message from plc, sending data to sm.\n");
-                    ret = IPC_Send(ipc_sock, (void *)buff, nBytes, itrc_main.ipc_remote);
-                    if(ret!=nBytes){
-                        printf("PROXY: error sending to SM. ret = ");
-                    }
-                    else {
-                        printf("message sent successfully. ret = ");
-                    }
-                    printf("%d\n", ret);
-                    
-                    // send to shadow (if it is in the system)
-                    if (shadow_isinsystem == 1) {
-                        printf("PROXY: message from plc, sending data to sm (shadow) \n");
-                        send_to_shadow(mess, nBytes);
-                    }
-
-                    // send to data collector (if it is in the system)
-                    if (data_collector_isinsystem == 1) {
-                        // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
-                        printf("sending message to data collector\n");
-                        // dc_ret = spines_sendto(dc_spines_sock, (void *)mess, nBytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-                        dc_ret = send_to_data_collector(mess, nBytes, RTU_PROXY_RTU_DATA);
-                        if (dc_ret < 0) {
-                            printf("Failed to send message to data collector.  ret = ");
-                        }
-                        else {
-                            printf("message sent to data collector. ret = ");
-                        }
-                        printf("%d\n", dc_ret);
-                    }
-                }
-            }
-        }
+    else {
+        fprintf(stderr, "Protocol: %s not supported\n", prot);
+        exit(EXIT_FAILURE);
     }
-    pthread_exit(NULL);
-    return 0;
+    return p_n;
+
 }
 
 void Process_Config_Msg(signed_message * conf_mess,int mess_size) {
-    config_message *c_mess;
-
-    if (mess_size!= sizeof(signed_message)+sizeof(config_message)){
-        printf("Config message is %d ,not expected size of %d\n",mess_size, sizeof(signed_message)+sizeof(config_message));
-        return;
-    }
-
-    if(!OPENSSL_RSA_Verify((unsigned char*)conf_mess+SIGNATURE_SIZE,
-                sizeof(signed_message)+conf_mess->len-SIGNATURE_SIZE,
-                (unsigned char*)conf_mess,conf_mess->machine_id,RSA_CONFIG_MNGR)){
-        printf("Benchmark: Config message signature verification failed\n");
-
-        return;
-    }
-    printf("Verified Config Message\n");
-    if(conf_mess->global_configuration_number<=My_Global_Configuration_Number){
-        printf("Got config=%u and I am already in %u config\n",conf_mess->global_configuration_number,My_Global_Configuration_Number);
-        return;
-    }
-    My_Global_Configuration_Number=conf_mess->global_configuration_number;
-    c_mess=(config_message *)(conf_mess+1);
-    //Reset SM
-    Reset_SM_def_vars(c_mess->N,c_mess->f,c_mess->k,c_mess->num_cc_replicas, c_mess->num_cc,c_mess->num_dc);
-    Reset_SM_Replicas(c_mess->tpm_based_id,c_mess->replica_flag,c_mess->spines_ext_addresses,c_mess->spines_int_addresses);
-    printf("Reconf done \n");
-}
-
-int usage_check(int ac) {
-    if (ac == 4) { // running with just the main system
-        data_collector_isinsystem = 0; // == false
-        shadow_isinsystem = 0;  // == false
-    }
-    else if (ac == 5) { // running with the main system and the data collector
-        data_collector_isinsystem = 1; // == true
-        shadow_isinsystem = 0;  // == false
-    }
-    else if (ac == 6) { // running with the main system, the data collector, and the shadow
-        data_collector_isinsystem = 1; // == true
-        shadow_isinsystem = 1;  // == true
-    }
-    else { // running with just the main system
-        printf("HELP: proxy sub spinesAddr:spinesPort Num_RTU_Emulated [dataCollectorAddr:dataCollectorPort] [shadowAddr:shadowPort]\n");
-        return 0;
-    }
-    
-    return 1;
-}
-
-int parse_args(int ac, char **av) {
-    // if usage_check returns 0 then invalid args were provided and so return 0 (i.e. exit)
-    if (usage_check(ac) == 0) {
-        return 0;
-    }
-
-    spinesd_ip_addr = strtok(strdup(av[2]), ":"); // spines daemon addr (global var)
-    spinesd_port = atoi(strtok(NULL, ":"));         // spines daemon port (global var)
-
-    if (data_collector_isinsystem == 1) { // if data collector is in the system
-        dc_spinesd_ip_addr = strtok(strdup(av[4]), ":");  // data collector addr (global var)
-        dc_spinesd_port = atoi(strtok(NULL, ":"));          // data collector port (global var)
-    }
-    if (shadow_isinsystem == 1) { // if shadow is in the system
-        shadow_spinesd_ip_addr = strtok(strdup(av[5]), ":"); // shadow addr (global var)
-        shadow_spinesd_port = atoi(strtok(NULL, ":"));         // shadow port (global var)
-    }
-
-    return 1;
-}
-
-int send_to_data_collector(signed_message *msg, int nbytes, int stream) {
-    // check if data collector connection was successful. if not, try to establish it first
-    if (dc_conn_successful == 0) {
-        setup_connection_to_data_collector(); // TODO Should set up a timer of something. currently spines_timeout dont seem to be used anywhere (including in ITRC client?)
-    }
-
-    int ret;
-    // ret = spines_sendto(dc_spines_sock, (void *)msg, nbytes, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-    struct data_collector_packet data_packet;
-    data_packet.data_stream = stream;
-    data_packet.system_message = *msg;
-    data_packet.nbytes_mess = nbytes;
-    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
-    ret = spines_sendto(dc_spines_sock, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&dc_dest, sizeof(struct sockaddr));
-
-    return ret;
-}
-
-void setup_connection_to_data_collector() {
-    dc_proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
-    /* Setup the spines timeout frequency - if disconnected, will try to reconnect
-    *  this often */
-    // #define DATA_COLLECTOR_SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
-    // #define DATA_COLLECTOR_SPINES_CONNECT_USEC 0
-    dc_spines_timeout.tv_sec  = 2; // DATA_COLLECTOR_SPINES_CONNECT_SEC;
-    dc_spines_timeout.tv_usec = 0; // DATA_COLLECTOR_SPINES_CONNECT_USEC;
-    dc_spines_sock = -1; // -1 is not a real socket so init to that
-    dc_spines_sock = Spines_SendOnly_Sock(spinesd_ip_addr, spinesd_port, dc_proto);
-    if (dc_spines_sock < 0) {
-        printf("setting up data collector conn.: Unable to connect to Spines, trying again soon\n");
-        // dc_t = &dc_spines_timeout; 
-        dc_conn_successful = 0;
-    }
-    else {
-        printf("setting up data collector conn.: Connected to Spines\n");
-        // dc_t = NULL;
-        dc_conn_successful = 1;
-    }
-    
-    dc_dest.sin_family = AF_INET;
-    dc_dest.sin_port = htons(dc_spinesd_port);
-    dc_dest.sin_addr.s_addr = inet_addr(dc_spinesd_ip_addr);
-}
-
-void setup_ipc_with_shadow_io() {
-    // shadow_io is the child:
-    ipc_sock_to_shadowio_child = IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
-    ipc_sock_from_shadowio_child = IPC_DGram_Sock(IPC_FROM_SHADOWIO_CHILD); // for receiving something FROM the parent
-}
-
-void send_to_shadow(signed_message *msg, int nbytes) {
-    // sends to the shadow itrc via the child processor shadow_io
-    int ret;
-    ret = IPC_Send(ipc_sock_to_shadowio_child, (void *)msg, nbytes, IPC_TO_SHADOWIO_CHILD);
-    if(ret != nbytes){
-        printf("PROXY: error sending to SM (shadow). ret = ");
-    }
-    else {
-        printf("message sent successfully. ret = ");
-    }
-    printf("%d\n", ret);
+    std::cout << "TODO\n";
+    exit(EXIT_FAILURE);
 }

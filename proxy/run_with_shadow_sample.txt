@@ -1,0 +1,3 @@
+0 1
+./io_process/io_process 1 192.168.0.101:8120 1
+./io_process/io_process_shadow 1 192.168.0.101:18120 2
