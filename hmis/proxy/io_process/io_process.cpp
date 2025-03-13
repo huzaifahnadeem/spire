@@ -44,7 +44,6 @@ system_ns::itrc_data ioproc_mainthread_to_itrcthread_data, ioproc_itr_client_dat
 std::string ipc_path_suffix;
 
 int main(int ac, char **av) {
-    std::cout << "io_process (with suffix: " + ipc_path_suffix + ") starts \n";
     // this kills this process if the parent gets a SIGHUP:
     prctl(PR_SET_PDEATHSIG, SIGHUP); // TODO: this might not be the best way to do this. check the second answer in the following (answer by Schof): https://stackoverflow.com/questions/284325/how-to-make-child-process-die-after-parent-exits/17589555
     
@@ -52,6 +51,9 @@ int main(int ac, char **av) {
     int ioproc_spinesd_port;
 
     parse_args(ac, av, ioproc_spinesd_ip_addr, ioproc_spinesd_port);
+    
+    std::cout << "io_process (" << ipc_path_suffix << ") starts (with suffix: " + ipc_path_suffix + ")\n";
+    
     setup_ipc_with_parent();
     
     pthread_t parent_listen_thread, itrc_thread, handle_msg_from_itrc_thread;
@@ -116,9 +118,9 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_d
 }
 
 void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port) {
-    std::string prime_keys = "../"; 
+    std::string prime_keys = ""; 
     prime_keys = prime_keys + HMI_PRIME_KEYS;
-    std::string sm_keys = "../";
+    std::string sm_keys = "";
     sm_keys = sm_keys + HMI_SM_KEYS;
     _itrc_init( ioproc_spinesd_ip_addr, 
                 ioproc_spinesd_port, 
@@ -147,24 +149,24 @@ void recv_then_fw_to_parent(int s, void *dummy1, void *dummy2) // called by hand
     UNUSED(dummy1);
     UNUSED(dummy2);
 
-    std::cout << "io_process: recv_then_fw_to_parent():\n";
+    std::cout << "io_process (" << ipc_path_suffix << "): recv_then_fw_to_parent():\n";
 
     // Receive from ITRC Client:
-    std::cout << "io_process: There is a message from the ITRC Client (ioproc) \n";
+    std::cout << "io_process (" << ipc_path_suffix << "): There is a message from the ITRC Client (ioproc) \n";
     ret = system_ns::IPC_Recv(s, buf, MAX_LEN);
     if (ret < 0) printf("io_process: recv_msg_from_itrc(): IPC_Rev failed\n");
     mess = (system_ns::signed_message *)buf;
     nbytes = sizeof(system_ns::signed_message) + mess->len;
     // Forward to parent:
     system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, (IPC_TO_PARENT + ipc_path_suffix).c_str());
-    std::cout << "io_process: The message has been forwarded to the parent proc.\n";
+    std::cout << "io_process (" << ipc_path_suffix << "): The message has been forwarded to the parent proc.\n";
 }
 
 void *handler_msg_from_itrc(void *arg)
 {   
     UNUSED(arg);
     
-    std::cout << "io_process: initialized handler_msg_from_itrc() \n";
+    std::cout << "io_process (" << ipc_path_suffix << "): initialized handler_msg_from_itrc() \n";
 
     fd_set active_fd_set, read_fd_set;
     int num;
@@ -194,20 +196,20 @@ void *listen_on_parent_sock(void *arg) {
     int nbytes;
 
     for (;;) {
-        std::cout << "io_process: Waiting to receive something on the parent socket\n";
+        std::cout << "io_process (" << ipc_path_suffix << "): Waiting to receive something on the parent socket\n";
         ret = system_ns::IPC_Recv(ipc_sock_from_parent, buf, MAX_LEN);
         if (ret < 0) {
-            std::cout << "io_process: IPC_Rev failed. ret = " << ret << "\n";
+            std::cout << "io_process (" << ipc_path_suffix << "): IPC_Rev failed. ret = " << ret << "\n";
         }
         else {
-            std::cout << "io_process: Received a message from the parent. ret = " << ret << "\n";
+            std::cout << "io_process (" << ipc_path_suffix << "): Received a message from the parent. ret = " << ret << "\n";
             mess = (system_ns::signed_message *)buf;
             nbytes = sizeof(system_ns::signed_message) + mess->len;
             ret = system_ns::IPC_Send(ioproc_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, ioproc_mainthread_to_itrcthread_data.ipc_remote);
             if (ret < 0) {
-                std::cout << "io_process: Failed to sent message to the IRTC thread. ret = " << ret << "\n";
+                std::cout << "io_process (" << ipc_path_suffix << "): Failed to sent message to the IRTC thread. ret = " << ret << "\n";
             }
-            std::cout << "io_process: The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
+            std::cout << "io_process (" << ipc_path_suffix << "): The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
 
         }
     }

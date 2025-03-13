@@ -212,7 +212,7 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
             is_first_line = false;    
             active_system_index = atoi(strtok(line_cstr, " "));
             int dc_isinsystem_int = atoi(strtok(NULL, " "));
-            if (dc_isinsystem_int != 1 || dc_isinsystem_int != 0) {
+            if (!(dc_isinsystem_int == 0 || dc_isinsystem_int == 1)) {
                 std::cout << "Invalid value for `data_collector_isinsystem` in the named pipe/file\n";
                 exit(EXIT_FAILURE);
             }
@@ -331,8 +331,8 @@ void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
 }
 
 void setup_ipc_sockets_for_io_proc(int system_index) {
-    sockets.to_ioproc_via_ipc[system_index] = IPC_DGram_SendOnly_Sock(); // for sending something TO the child process
-    sockets.from_ioproc_via_ipc[system_index] = IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str()); // for receiving something FROM the child process
+    sockets.to_ioproc_via_ipc.insert(sockets.to_ioproc_via_ipc.begin() + system_index, IPC_DGram_SendOnly_Sock()); // for sending something TO the child process
+    sockets.from_ioproc_via_ipc.insert(sockets.from_ioproc_via_ipc.begin() + system_index, IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str())); // for receiving something FROM the child process
 }
 
 void init_io_procs() {
@@ -348,7 +348,7 @@ void init_io_procs() {
 
         std::cout << "Starting io_process";
         if (num_of_systems > 1) {
-            std::cout << "# " << i << "/" << num_of_systems;
+            std::cout << " # " << i+1 << "/" << num_of_systems;
         }
         std::cout << "\n";
         

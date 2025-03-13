@@ -29,7 +29,7 @@ extern "C" {
     #include "prime/libspread-util/include/spu_events.h" // import libspread. for its event handler functions
 }
 
-// // defines:
+// defines:
 #define DEFAULT_IO_PROCESS_PATH "./io_process/io_process"
 #define IPC_FROM_IOPROC_CHILD "/tmp/ssproxy_ipc_ioproc_to_proxy"
 #define IPC_TO_IOPROC_CHILD "/tmp/ssproxy_ipc_proxy_to_ioproc"
@@ -88,6 +88,7 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
 void init_rtus_plcs_listen_thread(pthread_t &thread);
 void setup_data_collector_spines_sock();
 void send_to_data_collector(signed_message *msg, int nbytes, int stream);
+void setup_ipc_sockets_for_io_proc(int system_index);
 void init_io_procs();
 void init_io_proc_message_handlers(pthread_t &message_events_thread);
 void init_message_broker_processes_and_sockets();
@@ -106,6 +107,12 @@ int main(int ac, char **av) {
 
     // initializes and fork the message broker processes. also set up for communication with the:
     init_message_broker_processes_and_sockets();
+
+    // set up the IPC connection using which we will talk to the child process:
+    // note that this is being done here and not inside init_io_procs() because init_rtus_plcs_listen_thread() reads the sockets set up by this function
+    for (int i=0; i < num_of_systems; i++) {
+        setup_ipc_sockets_for_io_proc(i);
+    }
 
     // initialize and set up the thread that listens for messages from the PLCs/RTUs:
     pthread_t rtus_plcs_listen_thread;
@@ -195,7 +202,7 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
 
         // spines ip, port to use for comm. with the data collector
         colon_pos = -1;
-        std::string spinesd_arg = av[1];
+        std::string spinesd_arg = av[2];
         colon_pos = spinesd_arg.find(':');
         std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
         int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
@@ -225,7 +232,7 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
             is_first_line = false;    
             active_system_index = atoi(strtok(line_cstr, " "));
             int dc_isinsystem_int = atoi(strtok(NULL, " "));
-            if (dc_isinsystem_int != 1 || dc_isinsystem_int != 0) {
+            if (!(dc_isinsystem_int == 0 || dc_isinsystem_int == 1)) {
                 std::cout << "Invalid value for `data_collector_isinsystem` in the named pipe/file\n";
                 exit(EXIT_FAILURE);
             }
@@ -299,7 +306,9 @@ void *listen_on_rtus_plcs_sock(void *arg) {
                     for (int j = 0; j < num_of_systems; j++) {
                         std::string system_info = (num_of_systems == 1)? ".": " # "+ std::to_string(j) + "/" + std::to_string(num_of_systems) + ".";
                         std::cout << "PROXY: message from plc, sending data to SM" << system_info << "\n";
-                        ret = IPC_Send(sockets.to_ioproc_via_ipc[i], (void *)mess, nBytes, (IPC_TO_IOPROC_CHILD + io_processes_data[i].ipc_path_suffix).c_str());
+                        int this_sock = sockets.to_ioproc_via_ipc[j];
+                        std::string this_path_suffix = io_processes_data[j].ipc_path_suffix;
+                        ret = IPC_Send(this_sock, (void *)mess, nBytes, (IPC_TO_IOPROC_CHILD + this_path_suffix).c_str());
                         if(ret != nBytes){
                             std::cout << "PROXY: error sending to SM. ret = " << ret << "\n";
                         }
@@ -367,24 +376,21 @@ void send_to_data_collector(signed_message *msg, int nbytes, int stream) {
 }
 
 void setup_ipc_sockets_for_io_proc(int system_index) {
-    sockets.to_ioproc_via_ipc[system_index] = IPC_DGram_SendOnly_Sock(); // for sending something TO the child process
-    sockets.from_ioproc_via_ipc[system_index] = IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str()); // for receiving something FROM the child process
+    sockets.to_ioproc_via_ipc.insert(sockets.to_ioproc_via_ipc.begin() + system_index, IPC_DGram_SendOnly_Sock()); // for sending something TO the child process
+    sockets.from_ioproc_via_ipc.insert(sockets.from_ioproc_via_ipc.begin() + system_index, IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + io_processes_data[system_index].ipc_path_suffix).c_str())); // for receiving something FROM the child process
 }
 
 void init_io_procs() {
     std::vector<pid_t> pids;
     
     for (int i=0; i < num_of_systems; i++) {
-        // set up the IPC connection using which we will talk to the child process:
-        setup_ipc_sockets_for_io_proc(i);
-
         // Start the child process:
         pid_t pid;
         pids.push_back(pid);
 
         std::cout << "Starting io_process";
         if (num_of_systems > 1) {
-            std::cout << "# " << i << "/" << num_of_systems;
+            std::cout << " # " << i+1 << "/" << num_of_systems;
         }
         std::cout << "\n";
         
@@ -443,7 +449,6 @@ void io_proc_message_handler(int socket_to_use, int code, void *data)
     
     // If the message is from the active system, send to the the message broker (modbus/dnp3 process) for sending further down to the RTUs/PLCs:
     if (message_is_from == active_system_index) {
-        // IPC_Send(sockets.to_hmi_via_ipc, (void *)mess, nbytes, HMIPROXY_IPC_HMI);
         int in_list, rtu_dst, channel, ret2;
 
         rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
