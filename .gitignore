@@ -125,6 +125,7 @@ pvb/designer/src/Makefile.pvbplugin
 !prime/stdutil/Makefile
 !proxy/Makefile
 !proxy/**/Makefile
+!switcher/Makefile
 !scada_master/Makefile
 !spines/stdutil/Makefile
 !relay_emulator/Makefile
