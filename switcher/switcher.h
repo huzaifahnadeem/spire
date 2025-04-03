@@ -23,7 +23,7 @@ struct Spines_Connection {
 
 struct Switch_Message {
     int new_system_index;
-};
+}; // TODO: put this somewhere common to the proxies and the switcher
 
 struct Proxy_Messages_Thread_Args {
     Spines_Connection spines_conn;

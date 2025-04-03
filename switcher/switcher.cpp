@@ -10,6 +10,7 @@ extern "C" {
 
 Args args;
 std::queue <Switch_Message> pending_messages;
+const int switch_message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
 
 int main(int ac, char **av) {
     parse_args(ac, av);
@@ -102,9 +103,10 @@ void* read_input_pipe(void* fn_arg) {
 }
 
 Spines_Connection setup_spines_multicast_socket() {
-    int proto, socket, reconnect_wait_time_sec;
+    int proto, socket, reconnect_wait_time_sec, ttl;
     proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
     reconnect_wait_time_sec = 2;
+    ttl = 255; // not sure what is the purpose. copied from the config_manager's code
     socket = -1;
     while (socket < 0) {
         socket = Spines_Mcast_SendOnly_Sock(args.spinesd_ipaddr.c_str(), args.spinesd_port, proto);
@@ -122,7 +124,9 @@ Spines_Connection setup_spines_multicast_socket() {
     hostent h_ent;
     memcpy(&h_ent, gethostbyname(args.mcast_ipaddr.c_str()), sizeof(h_ent));
     memcpy(&connection.dest.sin_addr, h_ent.h_addr, sizeof(connection.dest.sin_addr));
-
+    if (spines_setsockopt(connection.socket, IPPROTO_IP, SPINES_IP_MULTICAST_TTL, &ttl, sizeof(ttl)) != 0) {
+        std::cout << "MCAST: Spines setsockopt error\n";
+      }
     std::cout << "MCAST set up done\n";
 
     return connection;
@@ -135,7 +139,8 @@ void* send_pending_messages_to_proxies(void* fn_args) {
         if (!pending_messages.empty()) {
             Switch_Message next_mesage = pending_messages.front();
             pending_messages.pop();
-
+            
+            // TODO think about how to use switch_message_max_size here. the proxies need a max length when receiving messages
             num_bytes = sizeof(Switch_Message);
             ret = spines_sendto(spines_connection.socket, (void *)&next_mesage, num_bytes, 0, (struct sockaddr *)&spines_connection.dest, sizeof(struct sockaddr)); 
             if(ret != num_bytes){

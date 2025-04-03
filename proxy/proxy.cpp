@@ -48,6 +48,7 @@ struct io_process_data_struct {
     std::string spines_ip;
     int spines_port;
     std::string ipc_path_suffix;
+    bool is_alive; // this is set to true when the io_proc is first started. set to false when the process is killed
 };
 struct data_collector_addr_struct {
     std::string dc_ip;
@@ -61,7 +62,21 @@ struct sockets_struct {
     std::vector<int> to_ioproc_via_ipc; // for sending messages to the I/O processes
     int to_data_collector_via_spines;
     int to_from_rtus_plcs_via_ipc[NUM_PROTOCOLS];
+    int switcher_socket;
 };
+
+struct switcher_addr_struct {
+    std::string mcast_ipaddr;
+    int mcast_port;
+    std::string spines_ip;
+    int spines_port;
+    struct ip_mreq mreq;
+};
+
+struct Switch_Message {
+    int new_system_index;
+}; // TODO: put this somewhere common to the proxies and the switcher
+
 struct data_collector_packet {
     int data_stream;
     int nbytes_mess;
@@ -81,10 +96,14 @@ int num_of_plc_rtus = -1;
 itrc_data protocol_data[NUM_PROTOCOLS];
 bool ipc_index_used_for_message_broker[NUM_PROTOCOLS];
 std::string proxy_id;
+bool switcher_isinsystem = false;
+switcher_addr_struct switcher_addr;
+const int switch_message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
+std::vector<pid_t> io_procs_pids; // keeps track of each IO Process' pid. it is used when a process needs to be killed
 
 // // function declarations:
 void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr);
-void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem);
+void read_named_pipe(std::string pipe_name);
 void init_rtus_plcs_listen_thread(pthread_t &thread);
 void setup_data_collector_spines_sock();
 void send_to_data_collector(signed_message *msg, int nbytes, int stream);
@@ -94,6 +113,8 @@ void init_io_proc_message_handlers(pthread_t &message_events_thread);
 void init_message_broker_processes_and_sockets();
 int string_to_protocol(char * prot);
 void Process_Config_Msg(signed_message * conf_mess,int mess_size);
+void setup_switcher_connection();
+pid_t new_io_proc(io_process_data_struct &io_proc_data);
 
 // function definitions:
 int main(int ac, char **av) {
@@ -125,11 +146,26 @@ int main(int ac, char **av) {
     pthread_t io_procs_message_events_thread;
     init_io_proc_message_handlers(io_procs_message_events_thread);
 
+    // set up socket and a libspread events handler to listen for any switcher messages:
+    setup_switcher_connection();
+
     // wait for the threads before exiting
     pthread_join(rtus_plcs_listen_thread, NULL);
     pthread_join(io_procs_message_events_thread, NULL);
 
     return 0;
+}
+
+void parse_ipaddr_colon_port(std::string ipaddr_colon_port, std::string &ipaddr, int &port) {
+    int colon_pos = -1;
+    colon_pos = ipaddr_colon_port.find(':');
+    ipaddr = ipaddr_colon_port.substr(0, colon_pos);
+    port = std::stoi(ipaddr_colon_port.substr(colon_pos + 1));
+}
+
+void parse_ipaddr_colon_port(char* ipaddr_colon_port, std::string &ipaddr, int &port) {
+    std::string std_string_ipaddr_colon_port = ipaddr_colon_port;
+    parse_ipaddr_colon_port(std_string_ipaddr_colon_port, ipaddr, port);
 }
 
 void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_process_data, data_collector_addr_struct &data_collector_addr) {
@@ -139,26 +175,30 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
     if (ac == 4) { // running with just the one active system
         one_default_sys = true;
         data_collector_isinsystem = false;
+        case_named_pipe = false;
     }
-    else if (ac == 5) { // running with the one active system and the data collector
-        one_default_sys = true;
-        data_collector_isinsystem = true;
-    }
-    else if (ac == 6) {  
+    else if (ac == 5) {  
         // running with the main system, the data collector, and shadow system(s).
         // check the else statement for details on how it is expected to work
         
         case_named_pipe =  true;
         data_collector_isinsystem = false;  // to be determined by reading the named pipe/file. will change to true if have a data collector otherwise keeping it at false
+        one_default_sys = false;
     }
     else { // TODO: what if different active sys index is given at start (as compared to the other proxy)?
         std::cout 
         << "Invalid args\n" 
-        << "Usage: ./proxy proxyID spinesAddr:spinesPort Num_PLC_RTU [dataCollectorAddr:dataCollectorPort] [named pipe name or file name to use multiple systems]\n" 
-        << "If you want to run with shadow/twin systems: for the last argument, provide the name of a named pipe or a text file to read on for the details of the other systems\n" 
-        << "For the named pipe/file, this program will expect the first line to be: `active_system_index data_collector_is_in_system`. active_system_index starts at 0 which is the system specified in the the very next line. The system in the line after the next one is at index 1 and so on. `data_collector_is_in_system` can be set to 0 (false) and 1 (true) to specify whether or not there is going to be a data collector in the system. Note that there is a single space between these two.\n" 
-        << "2nd line and onwards are expected to be like: /path/to/io_process_to_use SpinesIPAddr:SpinesPort suffixNumForIPCPath\n" 
-        << "If this arg is provided:\n\tIf is is specified that we will have a data collector, then the first argument will be used for the IP address and port of the spines daemon that is to be used for communication with the data collector.\n\tOtherwise, if is is specified that we will NOT have a data collector, then the first two arguments are ignored.\n";
+        << "Usage: ./proxy proxyID spinesAddr:spinesPort Num_PLC_RTU [named pipe name or file name to use multiple systems]\n" 
+        << "If you want to run with shadow/twin systems: for the last (optional) argument, provide the name of a named pipe or a text file to read on for the details of the other systems and information about the data collector.\n" 
+        << "For the named pipe/file, this program will expect the first line to be: \n"
+        << "`active_system_index`<space>`dataCollectorAddr:dataCollectorPort`<space>`switcherIPaddr:switcherPort`\n"
+        << "active_system_index starts at 0 which is the system specified in the very next line (line #2 overall). The system in the line after that (the 3rd line overall) is considered index 1 and so on.\n"
+        << "the next argument in the first line is `dataCollectorAddr:dataCollectorPort`. Use this to specify the data collector's IP address and port. If for some reason you do not want to use a data collector you can put a colon in this argument's place i.e. `:`.\n"
+        << "The next argument in the first line `switcherIPaddr:switcherPort` is used to specify the Multicast IP address and the port that the switcher will be using. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
+        << "2nd line and onwards are expected to be like: \n"
+        << "/path/to/io_process_to_use SpinesDaemonIPAddr:SpinesDaemonPort suffixNumForIPCPath\n" 
+        << "The IP address and port are of the spines daemon that is to be used for communication with this system.\n"
+        << "Lastly, note that if the named pipe/file argument is provided, then the ip address and port provided in the command line arguments are going to be used as IP address and port for the spines daemon that is to be used for the communication with the data collector and the switcher.\n";
              
         exit(EXIT_FAILURE);
     }
@@ -167,11 +207,9 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
         num_of_systems = 1;
         active_system_index = 0;
 
-        int colon_pos = -1;
-        std::string spinesd_arg = av[2];
-        colon_pos = spinesd_arg.find(':');
-        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
-        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
+        std::string spinesd_ip_addr;
+        int spinesd_port;
+        parse_ipaddr_colon_port(av[2], spinesd_ip_addr, spinesd_port);
 
         io_process_data_struct this_io_proc;
         this_io_proc.io_binary_path = DEFAULT_IO_PROCESS_PATH;
@@ -186,37 +224,31 @@ void parse_args(int ac, char **av, std::vector<io_process_data_struct> &io_proce
     }
 
     if (case_named_pipe) {
-        std::string pipe_name = av[5];
-        read_named_pipe(pipe_name, io_process_data, data_collector_isinsystem);
+        std::string pipe_name = av[4];
+        read_named_pipe(pipe_name);
     }
 
-    if (data_collector_isinsystem) {
-        // ip and port for the data collector process
-        std::string dc_arg = av[4];
-        int colon_pos = -1;
-        colon_pos = dc_arg.find(':');
-        std::string dc_ip_addr = dc_arg.substr(0, colon_pos);
-        int dc_port = std::stoi(dc_arg.substr(colon_pos + 1));
-        data_collector_addr.dc_ip = dc_ip_addr;
-        data_collector_addr.dc_port = dc_port;
-
-        // spines ip, port to use for comm. with the data collector
-        colon_pos = -1;
+    // if we have a data collector and/or switcher in the system then we need to know the spines daemon addr that will comm. with the these two components
+    if (data_collector_isinsystem || switcher_isinsystem) {
+        // spines ip, port to use for comm. with the data collector and/or switcher
         std::string spinesd_arg = av[2];
-        colon_pos = spinesd_arg.find(':');
-        std::string spinesd_ip_addr = spinesd_arg.substr(0, colon_pos);
-        int spinesd_port = std::stoi(spinesd_arg.substr(colon_pos + 1));
-        data_collector_addr.spines_ip = spinesd_ip_addr;
-        data_collector_addr.spines_port = spinesd_port;
+        std::string spinesd_ipaddr;
+        int spinesd_port;
+        parse_ipaddr_colon_port(spinesd_arg, spinesd_ipaddr, spinesd_port);
+        
+        if (data_collector_isinsystem) {
+            data_collector_addr.spines_ip = spinesd_ipaddr;
+            data_collector_addr.spines_port = spinesd_port;
+        }
 
-        // set up the sockaddr_in data struct:
-        data_collector_addr.dc_sockaddr_in.sin_family = AF_INET;
-        data_collector_addr.dc_sockaddr_in.sin_port = htons(data_collector_addr.dc_port);
-        data_collector_addr.dc_sockaddr_in.sin_addr.s_addr = inet_addr(data_collector_addr.dc_ip.c_str());
+        if (switcher_isinsystem) {
+            switcher_addr.spines_ip = spinesd_ipaddr;
+            switcher_addr.spines_port = spinesd_port;
+        }
     }
 }
 
-void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> &io_processes_data, bool &data_collector_isinsystem) {
+void read_named_pipe(std::string pipe_name) {
     std::ifstream pipe_file(pipe_name);
     if(pipe_file.fail()){
         std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
@@ -228,15 +260,42 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
     while (std::getline(pipe_file, line)) {
         char *line_cstr = strdup(line.c_str());
         io_process_data_struct this_io_proc;
-        if (is_first_line) {
-            is_first_line = false;    
+        if (is_first_line) {  
+            is_first_line = false;
+            // active system index:
             active_system_index = atoi(strtok(line_cstr, " "));
-            int dc_isinsystem_int = atoi(strtok(NULL, " "));
-            if (!(dc_isinsystem_int == 0 || dc_isinsystem_int == 1)) {
-                std::cout << "Invalid value for `data_collector_isinsystem` in the named pipe/file\n";
-                exit(EXIT_FAILURE);
+            
+            // data collector addr:
+            std::string dc_addr = strtok(NULL, " ");
+            if (dc_addr == ":") {
+                data_collector_isinsystem = false;
             }
-            data_collector_isinsystem = dc_isinsystem_int == 1? true: false;
+            else {
+                data_collector_isinsystem = true;
+                std::string dc_ipaddr;
+                int dc_port;
+                parse_ipaddr_colon_port(dc_addr, dc_ipaddr, dc_port);
+                data_collector_addr.dc_ip = dc_ipaddr;
+                data_collector_addr.dc_port = dc_port;
+                // set up the sockaddr_in data struct:
+                data_collector_addr.dc_sockaddr_in.sin_family = AF_INET;
+                data_collector_addr.dc_sockaddr_in.sin_port = htons(data_collector_addr.dc_port);
+                data_collector_addr.dc_sockaddr_in.sin_addr.s_addr = inet_addr(data_collector_addr.dc_ip.c_str());
+            }
+
+            // switcher mcast address:
+            std::string switcher_ipaddr_and_port = strtok(NULL, " ");
+            if (switcher_ipaddr_and_port == ":") {
+                switcher_isinsystem = false;
+            }
+            else {
+                switcher_isinsystem = true;
+                std::string switcher_ipaddr;
+                int switcher_port;
+                parse_ipaddr_colon_port(switcher_ipaddr_and_port, switcher_ipaddr, switcher_port);
+                switcher_addr.mcast_ipaddr = switcher_ipaddr;
+                switcher_addr.mcast_port = switcher_port;
+            }
         }
         else {
             num_sys_count++;
@@ -252,6 +311,7 @@ void read_named_pipe(std::string pipe_name, std::vector<io_process_data_struct> 
             int port = std::stoi(ip_and_port.substr(colon_pos + 1));
             this_io_proc.spines_ip = ip_addr;
             this_io_proc.spines_port = port;
+            this_io_proc.is_alive = false; // will set to true when it is actually forked
             
             // suffix for the ipc path
             this_io_proc.ipc_path_suffix = strtok(NULL, " ");
@@ -381,42 +441,14 @@ void setup_ipc_sockets_for_io_proc(int system_index) {
 }
 
 void init_io_procs() {
-    std::vector<pid_t> pids;
-    
     for (int i=0; i < num_of_systems; i++) {
-        // Start the child process:
-        pid_t pid;
-        pids.push_back(pid);
-
         std::cout << "Starting io_process";
         if (num_of_systems > 1) {
             std::cout << " # " << i+1 << "/" << num_of_systems;
         }
         std::cout << "\n";
         
-        // child -- run program on path
-        // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
-        char* child_proc_cmd[6] = { 
-            const_cast<char*>(io_processes_data[i].io_binary_path.c_str()), 
-            const_cast<char*>(io_processes_data[i].spines_ip.c_str()), 
-            const_cast<char*>(std::to_string(io_processes_data[i].spines_port).c_str()),
-            const_cast<char*>(io_processes_data[i].ipc_path_suffix.c_str()),
-            const_cast<char*>(proxy_id.c_str()),
-            NULL
-        };
-
-        if ((pid = fork()) < 0) { // error case
-            std::cout << "Error: fork returned pid < 0\n";
-            exit(EXIT_FAILURE);
-        }
-        else if(pid == 0) { 
-            // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
-            std::cout << "The child process' pid is: " << getpid() << "\n";
-            if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
-                std::cout << "Error in starting the process. errorno = "<< errno << "\n";
-                exit(EXIT_FAILURE); // exit child
-            }
-        }
+        io_procs_pids.push_back(new_io_proc(io_processes_data[i]));
     }
 }
 
@@ -522,7 +554,7 @@ void init_message_broker_processes_and_sockets() {
 
     std::cout << "finding location in json\n";
     // find my location in the json file
-    cJSON * my_loc;
+    cJSON * my_loc = NULL;
     cJSON * locations = cJSON_GetObjectItem(root, "locations");
     int num_locations;
     num_locations = cJSON_GetArraySize(locations);
@@ -638,4 +670,92 @@ int string_to_protocol(char * prot) {
 void Process_Config_Msg(signed_message * conf_mess,int mess_size) {
     std::cout << "TODO\n";
     exit(EXIT_FAILURE);
+}
+
+void handle_switcher_message(int sock, int code, void* data) {
+    UNUSED(code);
+    UNUSED(data);
+    
+    int ret;
+    byte buff[switch_message_max_size];
+    struct sockaddr_in from_addr;
+    socklen_t from_len = sizeof(from_addr);
+    Switch_Message * message;
+    
+    ret = spines_recvfrom(sock, buff, switch_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
+    if (ret < 0) {
+        std::cout << "Switcher Message Handler: Error receving the message\n";
+    }
+    else {
+        if ((unsigned long) ret < sizeof(Switch_Message)){
+            std::cout << "Switcher Message Handler: Error - The received message is smaller than expected\n";
+            return;
+        }
+        message = (Switch_Message*) buff;
+        active_system_index = message->new_system_index; // TODO: do i need to do more here?
+    }
+    return;
+}
+
+void setup_switcher_connection() {
+    // TODO: look at all the changes in this proxy file and apply the changes to the other proxy
+    // set up the mcast socket:
+    int retry_wait_sec = 2;
+    int proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
+    while (true) {
+        sockets.switcher_socket = Spines_Sock(switcher_addr.spines_ip.c_str(), switcher_addr.spines_port, proto, switcher_addr.mcast_port);
+        if (sockets.switcher_socket < 0 ) {
+            std::cout << "Error setting the socket for the switcher. Trying again in " << retry_wait_sec << "sec\n";
+            sleep(retry_wait_sec);
+        }
+        else {
+            break;
+        }
+    }
+    switcher_addr.mreq.imr_multiaddr.s_addr = inet_addr(switcher_addr.mcast_ipaddr.c_str());
+    switcher_addr.mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    if(spines_setsockopt(sockets.switcher_socket, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&switcher_addr.mreq, sizeof(switcher_addr.mreq)) < 0) {
+        std::cout << "Mcast: problem in setsockopt to join multicast address";
+      }
+    std::cout << "Mcast setup done\n";
+
+    // set up an event handler for the switcher's messages
+    E_init();
+    E_attach_fd(sockets.switcher_socket, READ_FD, handle_switcher_message, 0, NULL, HIGH_PRIORITY);
+    E_handle_events();
+}
+
+void kill_io_proc(io_process_data_struct io_proc_data) {
+    kill(io_procs_pids[sys_index], SIGTERM); // TODO: what kind of signal should i send?
+    io_proc_data.is_alive = false;
+}
+
+pid_t new_io_proc(io_process_data_struct &io_proc_data) {
+    pid_t pid;
+    // child -- run program on path
+    // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
+    char* child_proc_cmd[6] = { 
+        const_cast<char*>(io_proc_data.io_binary_path.c_str()), 
+        const_cast<char*>(io_proc_data.spines_ip.c_str()), 
+        const_cast<char*>(std::to_string(io_proc_data.spines_port).c_str()),
+        const_cast<char*>(io_proc_data.ipc_path_suffix.c_str()),
+        const_cast<char*>(proxy_id.c_str()),
+        NULL
+    };
+
+    if ((pid = fork()) < 0) { // error case
+        std::cout << "Error: fork returned pid < 0\n";
+        exit(EXIT_FAILURE);
+    }
+    else if(pid == 0) { 
+        // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
+        std::cout << "The child process' pid is: " << getpid() << "\n";
+        if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
+            std::cout << "Error in starting the process. errorno = "<< errno << "\n";
+            exit(EXIT_FAILURE); // exit child
+        }
+    }
+    
+    io_proc_data.is_alive = true;
+    return pid;
 }
