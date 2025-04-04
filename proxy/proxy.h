@@ -148,7 +148,7 @@ class RTUsPLCsMessageBrokerManager {
         DataCollectorManager * dc_manager;
 
         void init_message_broker_processes_and_sockets();
-        void * listen_on_rtus_plcs_sock(void *arg);
+        static void * listen_on_rtus_plcs_sock(void *arg);
         
     public:
         itrc_data protocol_data[NUM_PROTOCOLS];
@@ -171,7 +171,7 @@ class SwitcherManager {
         IOProcManager * io_proc_manager;
         
         void setup_switcher_connection();
-        void handle_switcher_message(int sock, int code, void* data);
+        static void handle_switcher_message(int sock, int code, void* data);
     
     public:
         SwitcherManager(InputArgs args, IOProcManager * io_proc_man);

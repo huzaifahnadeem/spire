@@ -67,7 +67,17 @@ void IOProcManager::add_io_proc(std::string id, std::string bin_path, SocketAddr
 void IOProcManager::start_io_proc(std::string id) {
     // for the given id, this function forks a process to run that. It also sets up the message handler for any messages received from this process
     this->fork_io_proc(io_procs[id], id);
-    E_attach_fd(io_procs[id].sockets.from, READ_FD, this->io_proc_message_handler, 0, (void*)&id, MEDIUM_PRIORITY); 
+
+    // Note that you cannot pass a non-static class memberfunction to E_attach_fd or to pthread_create.
+    // and since this function that I am passing (io_proc_message_handler) uses non-static class member properties, it cannot be simply made static as is
+    // So, I have made the function static and removed all direct references to 'this' object. Instead, to access object specific member properies, a reference to a specific object is passed
+    // since we have a few args to pass to this function, I have made a simple struct 'this_fn_args_struct' to use to send the args. Inside the function I have the same struct and I cast the void * data to this struct and use the object inside instead of 'this'
+    struct this_fn_args_struct {
+        std::string id;
+        IOProcManager* class_obj;
+    };
+    this_fn_args_struct args_to_pass = {.id = id, .class_obj = this};
+    E_attach_fd(io_procs[id].sockets.from, READ_FD, IOProcManager::io_proc_message_handler, 0, (void*)&args_to_pass, MEDIUM_PRIORITY); 
     // E_handle_events(); // confirm if this needs to be called again
 }
 void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
@@ -113,7 +123,13 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
     // It is called by listen_for_messages_from_ioproc()
 
     UNUSED(code);
-    std::string message_is_from = * (std::string *) data;
+    struct this_fn_args_struct {
+        std::string id;
+        IOProcManager* class_obj;
+    }; // since this is a static function, I cannot use 'this'. Instead a reference to a class object is passes as an argument (which is of this specific struct's type)
+    this_fn_args_struct this_fn_args = *(this_fn_args_struct *) data;
+    std::string message_is_from = this_fn_args.id;
+    IOProcManager* this_class_obj = this_fn_args.class_obj;
 
     int ret; 
     int nbytes;
@@ -135,17 +151,17 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
     }
     
     // If the message is from the active system, send to the the message broker (modbus/dnp3 process) for sending further down to the RTUs/PLCs:
-    if (message_is_from == this->active_sys_id) {
+    if (message_is_from == this_class_obj->active_sys_id) {
         int in_list, rtu_dst, channel, ret2;
 
         rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
         /* enqueue in correct ipc */
         in_list = key_value_get(rtu_dst, &channel);
         if(in_list) {
-            int this_socket = this->rtuplc_manager->sockets_to_from_rtus_plcs_via_ipc[channel];
-            std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this->rtuplc_manager->protocol_data[channel].ipc_remote << "\n";
+            int this_socket = this_class_obj->rtuplc_manager->sockets_to_from_rtus_plcs_via_ipc[channel];
+            std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this_class_obj->rtuplc_manager->protocol_data[channel].ipc_remote << "\n";
             ret2 = IPC_Send(this_socket, buffer, nbytes, 
-                        this->rtuplc_manager->protocol_data[channel].ipc_remote);
+                this_class_obj->rtuplc_manager->protocol_data[channel].ipc_remote);
             if(ret2 != nbytes) {
                 std::cout << "PROXY: error delivering to RTU\n";
             }
@@ -162,7 +178,7 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
 
     
     // Forward to the Data Collector: (the dc manager will figure out whether or there is a data collector to send to or not)
-    this->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
+    this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
 }
 void IOProcManager::send_msg_to_all_procs(signed_message *msg, int nbytes) {
     int ret;
@@ -483,11 +499,14 @@ void RTUsPLCsMessageBrokerManager::init_message_broker_processes_and_sockets() {
 }
 void RTUsPLCsMessageBrokerManager::init_listen_thread(pthread_t &thread) {
     // The thread listens for command messages coming from the RTUs/PLCs and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
-    pthread_create(&thread, NULL, this->listen_on_rtus_plcs_sock, NULL);
+
+    // for pthread_create, we need a static member function. That adds some extra work (which is below). See IOProcManager::start_io_proc for more details on a similar case
+
+    pthread_create(&thread, NULL, RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock, (void *)this);
 }
 void * RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
     // Receives any messages. Send them to all I/O processes
-    UNUSED(arg);
+    RTUsPLCsMessageBrokerManager * this_class_object = (RTUsPLCsMessageBrokerManager *) arg;
 
     fd_set mask, tmask;
     int num;
@@ -499,8 +518,8 @@ void * RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
 
     FD_ZERO(&mask);
     for(int i = 0; i < NUM_PROTOCOLS; i++) {
-        if(this->ipc_index_used_for_message_broker[i]) {
-            FD_SET(this->sockets_to_from_rtus_plcs_via_ipc[i], &mask);
+        if(this_class_object->ipc_index_used_for_message_broker[i]) {
+            FD_SET(this_class_object->sockets_to_from_rtus_plcs_via_ipc[i], &mask);
             std::cout << "FD_SET on ipc_s["<< i << "]\n";
         }
     }
@@ -510,22 +529,22 @@ void * RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
         num = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
         if (num > 0) {
             for(int i = 0; i < NUM_PROTOCOLS; i++) {
-                if (this->ipc_index_used_for_message_broker[i] != true) {
+                if (this_class_object->ipc_index_used_for_message_broker[i] != true) {
                     continue;
                 }
                 /* Message from a message broker */
-                if (FD_ISSET(this->sockets_to_from_rtus_plcs_via_ipc[i], &tmask)) {
-                    nBytes = IPC_Recv(this->sockets_to_from_rtus_plcs_via_ipc[i], buff, MAX_LEN);
+                if (FD_ISSET(this_class_object->sockets_to_from_rtus_plcs_via_ipc[i], &tmask)) {
+                    nBytes = IPC_Recv(this_class_object->sockets_to_from_rtus_plcs_via_ipc[i], buff, MAX_LEN);
                     mess = (signed_message *)buff;
                     mess->global_configuration_number = My_Global_Configuration_Number;
                     rtud = (rtu_data_msg *)(mess + 1);
                     ps = (seq_pair *)&rtud->seq;
                     ps->incarnation = My_Incarnation;
 
-                    this->io_proc_manager->send_msg_to_all_procs(mess, nBytes);
+                    this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nBytes);
 
                     // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
-                    this->dc_manager->send_to_dc(mess, nBytes, RTU_PROXY_RTU_DATA);
+                    this_class_object->dc_manager->send_to_dc(mess, nBytes, RTU_PROXY_RTU_DATA);
                 }
             }
         }
@@ -563,20 +582,21 @@ void SwitcherManager::setup_switcher_connection() {
 
     // set up an event handler for the switcher's messages
     E_init();
-    E_attach_fd(this->switcher_socket, READ_FD, this->handle_switcher_message, 0, NULL, HIGH_PRIORITY);
+    // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
+    E_attach_fd(this->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this, HIGH_PRIORITY);
     E_handle_events();
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     UNUSED(code);
-    UNUSED(data);
+    SwitcherManager * this_class_object = (SwitcherManager *) data;
     
     int ret;
-    byte buff[this->switch_message_max_size];
+    byte buff[this_class_object->switch_message_max_size];
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
     Switcher_Message * message;
     
-    ret = spines_recvfrom(sock, buff, this->switch_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
+    ret = spines_recvfrom(sock, buff, this_class_object->switch_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
     if (ret < 0) {
         std::cout << "Switcher Message Handler: Error receving the message\n";
     }
@@ -586,7 +606,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             return;
         }
         message = (Switcher_Message*) buff;
-        this->io_proc_manager->update_active_system_id(message->new_active_system_id);
+        this_class_object->io_proc_manager->update_active_system_id(message->new_active_system_id);
     }
     // TODO: forward received messages to the DC
     return;
