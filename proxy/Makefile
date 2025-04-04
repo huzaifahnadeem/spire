@@ -40,7 +40,9 @@ OBJECTS       = \
 		$(SPIRE)/config/cJSON.o \
 		$(SPIRE)/config/config_helpers.o \
 
-HEADERS       = $(SPIRE)/common/net_wrapper.h \
+HEADERS       = \
+		proxy.h \
+		$(SPIRE)/common/net_wrapper.h \
 		$(SPIRE)/common/openssl_rsa.h \
 		$(SPIRE)/common/tc_wrapper.h \
 		$(SPIRE)/common/scada_packets.h \
