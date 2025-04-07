@@ -7,6 +7,8 @@
 #include <netdb.h> // for struct hostent
 #include <cstring> // for memcpy
 
+#include "../data_collector/data_collector_packets.h"
+
 struct Args {
     std::string spinesd_ipaddr;
     int spinesd_port;

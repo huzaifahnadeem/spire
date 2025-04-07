@@ -1,56 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "data_collector.h"
 
-// for file operations
-#include <iostream>
-#include <fstream>
-
-// for time
-#include <chrono>
-#include <ctime>
-
-// string operations
-#include <string.h>
-
-// select statement
-#include <sys/select.h>
-
-
-#include <arpa/inet.h>
-
-// for spines
-extern "C" {
-    #include "../common/net_wrapper.h"
-    #include "../common/def.h"
-    #include "../common/itrc.h"
-    #include "spines_lib.h"
-}
-
-#define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
-#define SPINES_CONNECT_USEC 0
-
-// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
-#define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
-#define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
-#define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
-#define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
-#define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
-#define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
-struct data_collector_packet {
-    int data_stream;
-    int nbytes_mess;
-    int nbytes_struct;
-    signed_message system_message;
-}; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
-
-// void write_data(std::string data_file_path, signed_message* data, std::string sender_ipaddr, int sender_port);
-void write_data(std::string data_file_path, struct data_collector_packet * data_packet, std::string sender_ipaddr, int sender_port);
-void usage_check(int ac, char **av);
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path);
-char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen);
-void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port);
-
-int main(int ac, char **av){
+int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon
     int spinesd_port;
     int my_port; // the port this data collector receives messages on
@@ -108,7 +58,7 @@ int main(int ac, char **av){
                 int sender_port;
                 sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
                 // write_data(data_file_path, (signed_message *)buff, sender_ipaddr, sender_port);
-                write_data(data_file_path, (data_collector_packet *)buff, sender_ipaddr, sender_port);
+                write_data(data_file_path, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
                 std::cout << "data_collector: Data has been written to disk\n";
             }
         }
@@ -161,7 +111,7 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
 }
 
 // void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
-void write_data(std::string data_file_path, struct data_collector_packet * data_packet, std::string sender_ipaddr, int sender_port) {
+void write_data(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
     signed_message *data = &data_packet->system_message;

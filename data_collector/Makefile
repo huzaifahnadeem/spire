@@ -36,7 +36,7 @@ OBJECTS       = data_collector.o \
 
 TARGET        = data_collector
 
-HEADERS       = \
+HEADERS       = data_collector.h \
 		$(SPIRE)/common/net_wrapper.h \
 		$(SPIRE)/common/openssl_rsa.h \
 		$(SPIRE)/common/tc_wrapper.h \

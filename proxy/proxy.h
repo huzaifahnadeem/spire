@@ -15,6 +15,8 @@
 #include <sstream>
 #include <unordered_map>
 
+#include "../data_collector/data_collector_packets.h"
+
 extern "C" {
     #include "common/net_wrapper.h" 
     #include "common/def.h"
@@ -33,21 +35,6 @@ extern "C" {
 #define DEFAULT_IO_PROCESS_PATH "./io_process/io_process"
 #define IPC_FROM_IOPROC_CHILD "/tmp/ssproxy_ipc_ioproc_to_proxy"
 #define IPC_TO_IOPROC_CHILD "/tmp/ssproxy_ipc_proxy_to_ioproc"
-
-// TODO: Move these somewhere common to proxy.c, proxy.cpp, data_collector
-#define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
-#define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
-#define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy
-#define HMI_PROXY_MAIN_MSG      20  // message from main, received at the HMI proxy
-#define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
-#define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
-
-struct DataCollectorPacket {
-    int data_stream;
-    int nbytes_mess;
-    int nbytes_struct;
-    signed_message system_message;
-}; // TODO: this struct (identical versions) is in 3 different files (hmiproxy, data_collector, ss-side proxy). move this to some common file maybe scada_packets
 
 struct Switcher_Message {
     std::string new_active_system_id;
