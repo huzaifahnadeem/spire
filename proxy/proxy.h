@@ -199,11 +199,12 @@ class SwitcherManager {
         struct ip_mreq mcast_membership;
         IOProcManager * io_proc_manager;
         
-        void setup_switcher_connection();
+        void setup_switcher_socket();
+        static void* init_events_handler(void* arg);
         static void handle_switcher_message(int sock, int code, void* data);
     
     public:
-        SwitcherManager(InputArgs args, IOProcManager * io_proc_man);
+        SwitcherManager(InputArgs args, IOProcManager* io_proc_man, pthread_t &thread);
         
 };
 

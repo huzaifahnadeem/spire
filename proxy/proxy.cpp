@@ -24,11 +24,13 @@ int main(int ac, char **av) {
     io_proc_manager.start_all_io_procs();
 
     // sets up socket for the switcher messages and handle events:
-    SwitcherManager switcher_manager(args, &io_proc_manager);
+    pthread_t switcher_listen_thread;
+    SwitcherManager switcher_manager(args, &io_proc_manager, switcher_listen_thread);
 
     // wait for any threads before exiting
     pthread_join(ioprocs_events_thread, NULL);
     pthread_join(client_listen_thread, NULL);
+    pthread_join(ioprocs_events_thread, NULL);
     return EXIT_SUCCESS;
 }
 
@@ -685,13 +687,14 @@ void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManag
     this->dc_manager = dc_man;
 }
 
-SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man) {
+SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pthread_t &thread) {
     this->mcast_addr = args.pipe_data.switcher_sock_addr;
     this->spinesd_addr = args.spinesd_sock_addr;
     this->io_proc_manager = io_proc_man;
     this->setup_switcher_connection();
+    pthread_create(&thread, NULL, &SwitcherManager::init_events_handler, (void *)this);
 }
-void SwitcherManager::setup_switcher_connection() {
+void SwitcherManager::setup_switcher_socket() {
     // set up the mcast socket:
     int retry_wait_sec = 2;
     int proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
@@ -711,11 +714,13 @@ void SwitcherManager::setup_switcher_connection() {
         std::cout << "Mcast: problem in setsockopt to join multicast address";
       }
     std::cout << "Mcast setup done\n";
-
+}
+void* SwitcherManager::init_events_handler(void* args) {
+    SwitcherManager* this_class_object = (SwitcherManager*) arg;
     // set up an event handler for the switcher's messages
     E_init();
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
-    E_attach_fd(this->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this, HIGH_PRIORITY);
+    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this, HIGH_PRIORITY);
     E_handle_events();
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
