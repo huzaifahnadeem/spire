@@ -9,13 +9,6 @@ extern "C" {
 #define HMI_PROXY_SHADOW_MSG    21  // message from shadow, received at the HMI proxy
 #define HMI_PROXY_HMI_CMD       22  // message from HMI (contains HMI_COMMAND), received at the HMI proxy
 
-struct data_collector_packet {
-    int data_stream;
-    int nbytes_mess;
-    int nbytes_struct;
-    signed_message system_message;
-};
-
 struct DataCollectorPacket {
     int data_stream;
     int nbytes_mess;
