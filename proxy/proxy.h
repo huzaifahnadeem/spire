@@ -122,7 +122,7 @@ class IOProcManager {
 
         std::unordered_map<std::string, IOProcess> io_procs;
         std::string active_sys_id = "";
-        std::string proxy_id = ""; // used by the IO processes to tell the system about the proxy's role (client etc)
+        std::string proxy_id = ""; // used by the IO processes to tell the system about the proxy's role (client etc) -- not to be confused with systems ID for IO Procs, that is separate and stored as the key for each element in io_procs dict
         DataCollectorManager* data_collector_manager = NULL;
         ClientManager* client_manager = NULL;
         std::string client_type = "";

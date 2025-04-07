@@ -201,12 +201,15 @@ void IOProcManager::start_io_proc(std::string id) {
 void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
     // child -- run program on path
     // Note 1: by convention, arg 0 is the prog name. Note 2: execv required this array to be NULL terminated.
-    char* child_proc_cmd[6] = { 
+    std::string client_is_hmi= (this->client_type == "hmi"? "1": "0");
+    std::string ipc_path_suffix = id; 
+    char* child_proc_cmd[7] = { 
         const_cast<char*>(io_proc.io_binary_path.c_str()), 
         const_cast<char*>(io_proc.spines_addr.ip_addr.c_str()), 
         const_cast<char*>(std::to_string(io_proc.spines_addr.port).c_str()),
-        const_cast<char*>(id.c_str()),
-        const_cast<char*>(this->proxy_id.c_str()),
+        const_cast<char*>(ipc_path_suffix.c_str()),
+        const_cast<char*>(this->proxy_id.c_str()), // proxy id for rtu/plc
+        const_cast<char*>(client_is_hmi.c_str()),
         NULL
     };
 

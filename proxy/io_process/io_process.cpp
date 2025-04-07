@@ -28,8 +28,10 @@ namespace system_ns {
     }
 }
 
-#define IPC_TO_PARENT "/tmp/ssproxy_ipc_ioproc_to_proxy"
-#define IPC_FROM_PARENT "/tmp/ssproxy_ipc_proxy_to_ioproc"
+#define IPC_TO_PARENT_RTUPLCCLIENT "/tmp/ssproxy_ipc_ioproc_to_proxy"
+#define IPC_FROM_PARENT_RTUPLCCLIENT "/tmp/ssproxy_ipc_proxy_to_ioproc"
+#define IPC_TO_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_ioproc_to_proxy"
+#define IPC_FROM_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
 void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port);
 void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port);
@@ -42,7 +44,8 @@ unsigned int Seq_Num;
 int ipc_sock_to_parent, ipc_sock_from_parent;
 system_ns::itrc_data ioproc_mainthread_to_itrcthread_data, ioproc_itr_client_data;
 std::string ipc_path_suffix;
-int my_id_for_itrc;
+int proxy_id_for_itrc = 1; // only used for RTU/PLC clients
+bool client_is_hmi;
 
 int main(int ac, char **av) {
     // this kills this process if the parent gets a SIGHUP:
@@ -73,19 +76,25 @@ int main(int ac, char **av) {
 }
 
 void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port) {
-    if (ac != 5) {
+    if (ac != 6) {
         printf("Invalid args\n");
-        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort ipc_path_suffix My_ID_for_ITRC\n");
+        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort ipc_path_suffix proxy_id_for_itrc client_is_hmi\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
     ioproc_spinesd_ip_addr = av[1];
     ioproc_spinesd_port = atoi(av[2]);
     ipc_path_suffix = av[3];
-    my_id_for_itrc = atoi(av[4]);
+    proxy_id_for_itrc = atoi(av[4]);
+
+    std::string client_type_arg = av[5];
+    if (client_type_arg == "1")
+        client_is_hmi = true;
+    else
+        client_is_hmi = false;
 }
 
-void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string proxy_prime_keys_dir, std::string proxy_sm_keys_dir, std::string ssproxy_ipc_main_procfile, std::string ssproxy_ipc_itrc_procfile)
+void _itrc_init_plcrtu(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string proxy_prime_keys_dir, std::string proxy_sm_keys_dir, std::string ssproxy_ipc_main_procfile, std::string ssproxy_ipc_itrc_procfile)
 {   
     struct timeval now;
     system_ns::My_Global_Configuration_Number = 0;
@@ -99,7 +108,7 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_d
     system_ns::Type = RTU_TYPE;
     system_ns::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + system_ns::My_ID;
     system_ns::My_IP = system_ns::getIP();
-    system_ns::My_ID = my_id_for_itrc;
+    system_ns::My_ID = proxy_id_for_itrc;
 
     // Setup IPC for the RTU Proxy main thread
     printf("PROXY: Setting up IPC for RTU proxy thread (in io_proc)\n");
@@ -120,26 +129,84 @@ void _itrc_init(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_d
     sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);   
 }
 
+void _itrc_init_hmi(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string hmi_prime_keys_dir, std::string hmi_sm_keys_dir, std::string hmiproxy_ipc_main_procfile, std::string hmiproxy_ipc_itrc_procfile)
+{   
+    struct timeval now;
+    system_ns::My_Global_Configuration_Number = 0;
+    system_ns::Init_SM_Replicas();
+
+    // NET Setup
+    gettimeofday(&now, NULL);
+    system_ns::My_Incarnation = now.tv_sec;
+    Seq_Num = 1;
+    system_ns::Type = HMI_TYPE;
+    system_ns::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
+    system_ns::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + system_ns::My_ID;
+    system_ns::My_IP = system_ns::getIP();
+
+    // Setup IPC for HMI main thread
+    memset(&itrc_data_main, 0, sizeof(system_ns::itrc_data));
+    sprintf(itrc_data_main.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    sprintf(itrc_data_main.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    sprintf(itrc_data_main.ipc_local, "%s%d", hmiproxy_ipc_main_procfile.c_str(), system_ns::My_ID);
+    sprintf(itrc_data_main.ipc_remote, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), system_ns::My_ID);
+    
+    sock_main_to_itrc_thread = system_ns::IPC_DGram_Sock(itrc_data_main.ipc_local);
+
+    // Setup IPC for Worker thread (itrc client)
+    memset(&itrc_data_itrcclient, 0, sizeof(system_ns::itrc_data));
+    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", hmi_prime_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", hmi_sm_keys_dir.c_str());
+    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", hmiproxy_ipc_itrc_procfile.c_str(), system_ns::My_ID);
+    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", hmiproxy_ipc_main_procfile.c_str(), system_ns::My_ID);
+    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
+    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);
+}
+
 void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port) {
-    std::string prime_keys = ""; 
-    prime_keys = prime_keys + PROXY_PRIME_KEYS;
-    std::string sm_keys = "";
-    sm_keys = sm_keys + PROXY_SM_KEYS;
-    _itrc_init( ioproc_spinesd_ip_addr, 
-                ioproc_spinesd_port, 
-                ioproc_mainthread_to_itrcthread_data, 
-                ioproc_itr_client_data, 
-                ioproc_ipc_sock_main_to_itrcthread, 
-                prime_keys,
-                sm_keys,
-                RTU_IPC_MAIN_IOPROC, 
-                RTU_IPC_ITRC_IOPROC 
-            );
+    if (client_is_hmi) {
+        std::string prime_keys = ""; 
+        prime_keys = prime_keys + HMI_PRIME_KEYS;
+        std::string sm_keys = "";
+        sm_keys = sm_keys + HMI_SM_KEYS;
+        _itrc_init_hmi( ioproc_spinesd_ip_addr, 
+                    ioproc_spinesd_port, 
+                    ioproc_mainthread_to_itrcthread_data, 
+                    ioproc_itr_client_data, 
+                    ioproc_ipc_sock_main_to_itrcthread, 
+                    prime_keys,
+                    sm_keys, 
+                    HMIPROXY_IPC_MAIN_IOPROC, 
+                    HMIPROXY_IPC_ITRC_IOPROC
+        );
+    }
+    else { // client is PLC/RTU
+        std::string prime_keys = ""; 
+        prime_keys = prime_keys + PROXY_PRIME_KEYS;
+        std::string sm_keys = "";
+        sm_keys = sm_keys + PROXY_SM_KEYS;
+        _itrc_init_plcrtu( ioproc_spinesd_ip_addr, 
+            ioproc_spinesd_port, 
+            ioproc_mainthread_to_itrcthread_data, 
+            ioproc_itr_client_data, 
+            ioproc_ipc_sock_main_to_itrcthread, 
+            prime_keys,
+            sm_keys,
+            RTU_IPC_MAIN_IOPROC, 
+            RTU_IPC_ITRC_IOPROC 
+        );
+    }
 }
 
 void setup_ipc_with_parent() {
     ipc_sock_to_parent = system_ns::IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
-    ipc_sock_from_parent = system_ns::IPC_DGram_Sock((IPC_FROM_PARENT + ipc_path_suffix).c_str()); // for receiving something FROM the parent
+    
+    std::string ipc_from_parent;
+    if (client_is_hmi)
+        ipc_from_parent = IPC_FROM_PARENT_HMICLIENT;
+    else
+        ipc_from_parent = IPC_FROM_PARENT_RTUPLCCLIENT;
+    ipc_sock_from_parent = system_ns::IPC_DGram_Sock((ipc_from_parent + ipc_path_suffix).c_str()); // for receiving something FROM the parent
 }
 
 void recv_then_fw_to_parent(int s, void *dummy1, void *dummy2) // called by handler_msg_from_itrc
@@ -161,7 +228,12 @@ void recv_then_fw_to_parent(int s, void *dummy1, void *dummy2) // called by hand
     mess = (system_ns::signed_message *)buf;
     nbytes = sizeof(system_ns::signed_message) + mess->len;
     // Forward to parent:
-    system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, (IPC_TO_PARENT + ipc_path_suffix).c_str());
+    std::string ipc_to_parent;
+    if (client_is_hmi)
+        ipc_to_parent = IPC_TO_PARENT_HMICLIENT;
+    else
+        ipc_to_parent = IPC_TO_PARENT_RTUPLCCLIENT;
+    system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, (ipc_to_parent + ipc_path_suffix).c_str());
     std::cout << "io_process (" << ipc_path_suffix << "): The message has been forwarded to the parent proc.\n";
 }
 
