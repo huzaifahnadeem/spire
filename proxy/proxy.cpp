@@ -691,7 +691,7 @@ SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pt
     this->mcast_addr = args.pipe_data.switcher_sock_addr;
     this->spinesd_addr = args.spinesd_sock_addr;
     this->io_proc_manager = io_proc_man;
-    this->setup_switcher_connection();
+    this->setup_switcher_socket();
     pthread_create(&thread, NULL, &SwitcherManager::init_events_handler, (void *)this);
 }
 void SwitcherManager::setup_switcher_socket() {
