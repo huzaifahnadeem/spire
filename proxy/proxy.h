@@ -61,6 +61,7 @@ struct SocketAddress {
 // Declaring these classes here first because they have properties refering to each other.
 class RTUsPLCsMessageBrokerManager;
 class IOProcManager;
+class ClientManager;
 
 class InputArgs {
     private:
@@ -83,10 +84,11 @@ class InputArgs {
     public:
         InputArgs(int ac, char **av);
         SocketAddress spinesd_sock_addr;
-        std::string proxy_id;
-        int num_of_plc_rtus;
+        std::string proxy_id = "";
+        int num_of_plc_rtus = -1;
         std::string pipe_name;
         PipeData pipe_data;
+        std::string client_type;
 };
 
 class DataCollectorManager {
@@ -121,22 +123,22 @@ class IOProcManager {
         std::unordered_map<std::string, IOProcess> io_procs;
         std::string active_sys_id = "";
         std::string proxy_id = ""; // used by the IO processes to tell the system about the proxy's role (client etc)
-        DataCollectorManager * data_collector_manager;
-        RTUsPLCsMessageBrokerManager * rtuplc_manager;
+        DataCollectorManager* data_collector_manager = NULL;
+        ClientManager* client_manager = NULL;
+        std::string client_type = "";
 
         void fork_io_proc(IOProcess &io_proc, std::string id);
         static void io_proc_message_handler(int sock, int code, void *data);
         
-        public:
-        IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, RTUsPLCsMessageBrokerManager * rtuplc_man);
+    public:
+        IOProcManager(InputArgs args, DataCollectorManager* data_collector_manager, ClientManager* rtuplc_man);
         void add_io_proc(std::string id, std::string bin_path, SocketAddress spines_addr);
         void start_io_proc(std::string id);
         void start_all_io_procs();
         void kill_io_proc(std::string id);
-        void send_msg_to_all_procs(signed_message *msg, int nbytes);
+        void send_msg_to_all_procs(signed_message* msg, int nbytes);
         void update_active_system_id(std::string new_sys_id);
 };
-
 class RTUsPLCsMessageBrokerManager {
     private:
         std::string proxy_id;
@@ -144,20 +146,59 @@ class RTUsPLCsMessageBrokerManager {
         bool ipc_index_used_for_message_broker[NUM_PROTOCOLS];
         int num_of_plc_rtus;
         SocketAddress spinesd_addr; // the daemon that is not specific to any system. used by data collector, here, etc
-        IOProcManager * io_proc_manager;
-        DataCollectorManager * dc_manager;
-
-        void init_message_broker_processes_and_sockets();
-        static void * listen_on_rtus_plcs_sock(void *arg);
-        
-    public:
         itrc_data protocol_data[NUM_PROTOCOLS];
         int sockets_to_from_rtus_plcs_via_ipc[NUM_PROTOCOLS];
-
+        DataCollectorManager* dc_manager = NULL; 
+        IOProcManager* io_proc_manager = NULL;   
+        
+        void init_message_broker_processes_and_sockets();
+        static void* listen_on_rtus_plcs_sock(void *arg);
+        
+    public:
         RTUsPLCsMessageBrokerManager(InputArgs args);
+        int send(signed_message* mess, int nbytes);
+        void set_data_collector_man_ref(DataCollectorManager * dc_man);
+        void set_io_proc_man_ref(IOProcManager * io_proc_man);
+        void init_listen_thread(pthread_t &thread);
+};
+
+class HMIManager {
+    private:
+        struct IPCSocket {
+            int to = -1; // socket that is used when sending something to the HMI
+            int from = -1; // socket that is used when receiving something from the HMI
+        };
+
+        IPCSocket sockets;
+        DataCollectorManager* dc_manager = NULL; 
+        IOProcManager* io_proc_manager = NULL;
+
+        void setup_ipc_for_hmi();
+        static void* listen_on_hmi_sock(void *arg);
+        
+    public:       
+        HMIManager();
+        void init_listen_thread(pthread_t &thread);
+        int send(signed_message* mess, int nbytes);
+        void set_data_collector_man_ref(DataCollectorManager * dc_man);
+        void set_io_proc_man_ref(IOProcManager * io_proc_man);
+};
+
+class ClientManager {
+    private:
+        IOProcManager* io_proc_manager = NULL;
+        DataCollectorManager* dc_manager = NULL;
+        RTUsPLCsMessageBrokerManager* rtu_manager = NULL;
+        HMIManager* hmi_manager = NULL;
+
+        std::string client_type = "";
+
+    public:
+        ClientManager(InputArgs args);
         void init_listen_thread(pthread_t &thread);
         void set_io_proc_man_ref(IOProcManager * io_proc_man);
         void set_data_collector_man_ref(DataCollectorManager * dc_man);
+        int send(signed_message* mess, int nbytes);
 };
 
 class SwitcherManager {

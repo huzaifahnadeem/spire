@@ -251,7 +251,7 @@ void setup_ipc_for_hmi(sockets_struct &sockets)
     sockets.to_hmi_via_ipc = IPC_DGram_SendOnly_Sock(); // for HMI-side-proxy to HMI communication
 }
 
-void *listen_on_hmi_sock(void *arg){
+void *listen_on_hmi_sock(void *arg) {
     // sockets_struct * sockets = (sockets_struct*) (arg);
     UNUSED(arg);
 

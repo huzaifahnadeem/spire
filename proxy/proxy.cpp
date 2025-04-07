@@ -7,17 +7,17 @@ int main(int ac, char **av) {
     // set up the data collector manager
     DataCollectorManager data_collector_manager(args.pipe_data.data_collector_sock_addr, args.spinesd_sock_addr);
     
-    // Initializes message broker processes and sets up sockets
-    RTUsPLCsMessageBrokerManager rtuplc_manager(args);
+    // Initialize client manager
+    ClientManager client_manager(args);   
 
     // set up I/O Processes Manager
-    IOProcManager io_proc_manager(args, &data_collector_manager, &rtuplc_manager);
+    IOProcManager io_proc_manager(args, &data_collector_manager, &client_manager);
 
-    // Initialize the thread that listens to the incoming messages from the RTUs/PLCs
-    pthread_t rtus_plcs_listen_thread;
-    rtuplc_manager.set_io_proc_man_ref(&io_proc_manager); // so that the rtu/plc manager can send messages to the IO processes
-    rtuplc_manager.set_data_collector_man_ref(&data_collector_manager); // so that the rtu/plc manager can send messages to the data collector
-    rtuplc_manager.init_listen_thread(rtus_plcs_listen_thread);
+    // start client manager
+    pthread_t client_listen_thread;
+    client_manager.set_io_proc_man_ref(&io_proc_manager); // so that the client manager can send messages to the IO processes
+    client_manager.set_data_collector_man_ref(&data_collector_manager); // so that the client manager can send messages to the data collector
+    client_manager.init_listen_thread(client_listen_thread); // Initialize the thread that listens to the incoming messages from the clients
 
     // fork all the io processes
     io_proc_manager.start_all_io_procs();
@@ -26,15 +26,133 @@ int main(int ac, char **av) {
     SwitcherManager switcher_manager(args, &io_proc_manager);
 
     // wait for any threads before exiting
-    pthread_join(rtus_plcs_listen_thread, NULL);
+    pthread_join(client_listen_thread, NULL);
     return EXIT_SUCCESS;
 }
 
-IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, RTUsPLCsMessageBrokerManager * rtuplc_man) {
+InputArgs::InputArgs(int ac, char **av) {
+    this->parse_args(ac, av);
+}
+void InputArgs::print_usage() {
+    std::cout 
+        << "Invalid args\n" 
+        << "Usage: ./proxy -c client_type -id proxyID -sd spinesAddr:spinesPort -n Num_PLC_RTU -dt [named pipe name or file name to use multiple systems]\n" 
+        << "use `-c` to specify the client's type. Valid options: `hmi`, `rtus_plcs`.\n"
+        << "use `-id` to specify the Proxy ID for the RTUs/PLCs clients. Ignored for HMI clients.\n"
+        << "use `-sd` to specify the Spines daemon's Socket Address (IPaddress:Port). If not using the -dt option (see below), then this daemon is used for all communication by this proxy.\n"
+        << "use `-n` to the number of RTUs/PLCs. Ignored for RTU/PLC clients.\n"
+        << "You may use the arguments in any order. Specify the argument followed by a space and then the value. e.g. `-c hmi`.\n"
+        << "\nIf you want to run with digital twin systems: for the last (optional) -dt argument, provide the name of a named pipe or a text file to read on for the details of the other systems and information about the data collector.\n" 
+        << "For this named pipe/file, this program will expect the first line to be: \n"
+        << "`active_system_id`<space>`dataCollectorIPAddr:dataCollectorPort`<space>`switcherIPAddr:switcherPort`\n"
+        << "active_system_id is a string that is specified for each system (see below).\n"
+        << "The next argument in the first line is `dataCollectorIPAddr:dataCollectorPort`. Use this to specify the data collector's IP address and port. If for some reason you do not want to use a data collector you skip this by putting a colon in this argument's place i.e. `:`.\n"
+        << "The next argument in the first line `switcherIPAddr:switcherPort` is used to specify the Multicast IP address and the port that the switcher will be using. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
+        << "2nd line and onwards are expected to be like: \n"
+        << "System_ID /path/to/io_process_to_use SpinesDaemonIPAddr:SpinesDaemonPort\n" 
+        << "Use `System_ID` to specify the system's unique ID/label. This will be used refer to the system.\n" 
+        << "Use `/path/to/io_process_to_use` to specify where the I/O Process' binary file is.\n" 
+        << "The IP address and port are of the spines daemon that is to be used for communication with this system.\n"
+        << "Finally, note that if the named pipe/file argument is provided, then the ip address and port provided in the command line arguments are going to be used as IP address and port for the spines daemon that is to be used for the communication with the data collector and the switcher.\n";
+             
+        exit(EXIT_FAILURE);
+}
+void InputArgs::parse_args(int argc, char **argv) {
+    // TODO: right now we only have one kind of HMI (pnnl). But in the future we might want to have an option of having multiple?
+    while (--argc > 0) {
+        argv++;
+    
+        /* [-c client_type] */
+        if ((argc > 1) && (!strncmp(*argv, "-c", 2))) {
+            std::string this_arg = argv[1];
+            if ((this_arg != "hmi") || (this_arg != "rtus_plcs")) {
+                std::cout << "Invalid value provided for -c argument. Exiting.\n";
+                exit(EXIT_FAILURE);
+            }
+            this->client_type = this_arg;
+            argc--; argv++;
+        }
+        /* [-id proxyID] */
+        else if ((argc > 1) && (!strncmp(*argv, "-id", 3))) {
+            std::string this_arg = argv[1];
+            this->proxy_id = this_arg;
+            argc--; argv++;
+        }
+        /* [-sd spinesAddr:spinesPort] */
+        else if ((argc > 1) && (!strncmp(*argv, "-sd", 3))) {
+            std::string this_arg = argv[1];
+            this->spinesd_sock_addr = parse_socket_address(this_arg);
+            argc--; argv++;
+        }
+        /* [-n Num_PLC_RTU] */
+        else if ((argc > 1) && (!strncmp(*argv, "-n", 2))) {
+            std::string this_arg = argv[1];
+            this->num_of_plc_rtus = std::stoi(this_arg);
+            argc--; argv++;
+        }
+        /* [-dt named_pipe] */
+        else if ((argc > 1) && (!strncmp(*argv, "-dt", 3))) {
+            std::string this_arg = argv[1];
+            this->pipe_name = this_arg;
+            this->read_named_pipe(this->pipe_name);
+            argc--; argv++;
+        }
+        else {
+            this->print_usage();
+        }
+    }
+}
+void InputArgs::read_named_pipe(std::string pipe_name) {
+    std::ifstream pipe_file(pipe_name);
+    if(pipe_file.fail()){
+        std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
+        exit(EXIT_FAILURE);
+    }
+
+    std::string line;
+    bool is_first_line = true;
+    while (std::getline(pipe_file, line)) {
+        char *line_cstr = strdup(line.c_str());
+        if (is_first_line) {  
+            is_first_line = false;
+            
+            this->pipe_data.active_sys_id = strtok(line_cstr, " ");
+            
+            // data collector socket addr:
+            std::string dc_addr = strtok(NULL, " ");
+            this->pipe_data.data_collector_sock_addr = parse_socket_address(dc_addr);
+
+            // switcher mcast address:
+            std::string switcher_addr = strtok(NULL, " ");
+            this->pipe_data.switcher_sock_addr = parse_socket_address(switcher_addr);
+        }
+        else {
+            SystemsData this_systems_data;
+            
+            // id for this system
+            this_systems_data.id = strtok(line_cstr, " ");
+
+            // io_proc binary to use:
+            this_systems_data.binary_path = strtok(NULL, " ");
+
+            // spines ip addr and port to use with this io_process:
+            std::string sp_addr = strtok(NULL, " ");
+            this_systems_data.spinesd_sock_addr = parse_socket_address(sp_addr);
+                        
+            // save:
+            this->pipe_data.systems_data.push_back(this_systems_data);
+        }
+
+        free(line_cstr);
+    }
+}
+
+IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, ClientManager* client_man) {
     // TODO: maybe this needs to be done in a thread
     this->proxy_id = args.proxy_id;
     this->data_collector_manager = data_collector_manager;
-    this->rtuplc_manager = rtuplc_man;
+    this->client_manager = client_man;
+    this->client_type = args.client_type;
 
     // add IO Procs
     if (args.pipe_name == "" && args.pipe_data.systems_data.size() == 0) {
@@ -144,54 +262,48 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
     mess = (signed_message *)buffer;
     nbytes = sizeof(signed_message) + mess->len;
 
-    // Special Processing for reconfiguration message
-    if(mess->type ==  PRIME_OOB_CONFIG_MSG) {
-        std::cout << "PROXY: processing OOB CONFIG MESSAGE\n";
-        process_config_msg((signed_message *)buffer, ret);
+    if (this_class_obj->client_type == "rtus_plcs") {
+        // Special Processing for reconfiguration message
+        if(mess->type ==  PRIME_OOB_CONFIG_MSG) {
+            std::cout << "PROXY: processing OOB CONFIG MESSAGE\n";
+            process_config_msg((signed_message *)buffer, ret);
+        }
+        
+        // If the message is from the active system, send to the the message broker (modbus/dnp3 process) for sending further down to the RTUs/PLCs:
+        if (message_is_from == this_class_obj->active_sys_id) {
+            this_class_obj->client_manager->send(mess, nbytes);
+            std::cout << "I/O process message handler for process # " << message_is_from << ": " << "The message has been forwarded to the RTUs/PLCs\n";
+        }
+        
+        // Forward to the Data Collector: (the dc manager will figure out whether or there is a data collector to send to or not)
+        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
     }
     
-    // If the message is from the active system, send to the the message broker (modbus/dnp3 process) for sending further down to the RTUs/PLCs:
-    if (message_is_from == this_class_obj->active_sys_id) {
-        int in_list, rtu_dst, channel, ret2;
-
-        rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
-        /* enqueue in correct ipc */
-        in_list = key_value_get(rtu_dst, &channel);
-        if(in_list) {
-            int this_socket = this_class_obj->rtuplc_manager->sockets_to_from_rtus_plcs_via_ipc[channel];
-            std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this_class_obj->rtuplc_manager->protocol_data[channel].ipc_remote << "\n";
-            ret2 = IPC_Send(this_socket, buffer, nbytes, 
-                this_class_obj->rtuplc_manager->protocol_data[channel].ipc_remote);
-            if(ret2 != nbytes) {
-                std::cout << "PROXY: error delivering to RTU\n";
-            }
-            else {
-                std::cout << "PROXY: delivered to RTU\n";
-            }
-        }
-        else {
-            std::cout << "Error: Message from spines for rtu: " << rtu_dst << ", not my problem\n";
-        }
-
-        std::cout << "I/O process message handler for process # " << message_is_from << ": " << "The message has been forwarded to the RTUs/PLCs\n";
-    }
-
+    else if (this_class_obj->client_type == "hmi") {
+        // TODO: check for PRIME_OOB_CONFIG_MSG ?
     
-    // Forward to the Data Collector: (the dc manager will figure out whether or there is a data collector to send to or not)
-    this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
+        // If the message is from the active system, send to the HMI:
+        if (message_is_from == this_class_obj->active_sys_id) {
+            this_class_obj->client_manager->send(mess, nbytes);
+            std::cout << "I/O process message handler for process # " << message_is_from << ": " << "The message has been forwarded to the HMI\n";
+        }
+
+        // Forward to the Data Collector:
+        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG);
+    }    
 }
 void IOProcManager::send_msg_to_all_procs(signed_message *msg, int nbytes) {
     int ret;
     for (auto & [id, this_io_proc]: this->io_procs) {
-        std::cout << "PROXY: message from plc, sending data to SM with system ID " << id << "\n";
+        std::cout << "PROXY: message from proxy, sending to SM (via IO Process with system ID " << id << ")\n";
         int this_sock = this_io_proc.sockets.to;
         std::string this_path_suffix = id;
         ret = IPC_Send(this_sock, (void *)msg, nbytes, (IPC_TO_IOPROC_CHILD + this_path_suffix).c_str());
         if(ret != nbytes) {
-            std::cout << "PROXY: error sending to SM with system ID "<< id << ". ret = " << ret << "\n";
+            std::cout << "PROXY: error sending to SM (via IO Process with system ID "<< id << "). ret = " << ret << "\n";
         }
         else {
-            std::cout << "PROXY: message sent successfully to SM with system ID "<< id << ". ret = " << ret << "\n";
+            std::cout << "PROXY: message sent successfully to SM (via IO Process with system ID "<< id << "). ret = " << ret << "\n";
         }
     }
 }
@@ -206,94 +318,12 @@ void IOProcManager::update_active_system_id(std::string new_sys_id) {
     }
 }
 
-InputArgs::InputArgs(int ac, char **av) {
-    this->parse_args(ac, av);
-}
-void InputArgs::print_usage() {
-    std::cout 
-        << "Invalid args\n" 
-        << "Usage: ./proxy proxyID spinesAddr:spinesPort Num_PLC_RTU [named pipe name or file name to use multiple systems]\n" 
-        << "\nIf you want to run with shadow/twin systems: for the last (optional) argument, provide the name of a named pipe or a text file to read on for the details of the other systems and information about the data collector.\n" 
-        << "For this named pipe/file, this program will expect the first line to be: \n"
-        << "`active_system_id`<space>`dataCollectorIPAddr:dataCollectorPort`<space>`switcherIPAddr:switcherPort`\n"
-        << "active_system_id is a string that is specified for each system (see below).\n"
-        << "The next argument in the first line is `dataCollectorIPAddr:dataCollectorPort`. Use this to specify the data collector's IP address and port. If for some reason you do not want to use a data collector you skip this by putting a colon in this argument's place i.e. `:`.\n"
-        << "The next argument in the first line `switcherIPAddr:switcherPort` is used to specify the Multicast IP address and the port that the switcher will be using. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
-        << "2nd line and onwards are expected to be like: \n"
-        << "/path/to/io_process_to_use SpinesDaemonIPAddr:SpinesDaemonPort System_ID\n" 
-        << "The IP address and port are of the spines daemon that is to be used for communication with this system.\n"
-        << "Lastly, note that if the named pipe/file argument is provided, then the ip address and port provided in the command line arguments are going to be used as IP address and port for the spines daemon that is to be used for the communication with the data collector and the switcher.\n";
-             
-        exit(EXIT_FAILURE);
-}
-void InputArgs::parse_args(int ac, char **av) {
-    // TODO make a better parse fn
-
-    if (!(ac == 4 || ac == 5)) {
-        this->print_usage();
-    }
-
-    this->proxy_id = av[1];
-    this->spinesd_sock_addr = parse_socket_address(av[2]);
-    this->num_of_plc_rtus = atoi(av[3]);
-
-    if (ac == 5) {
-        // optional arg (i.e named pipe for twins, etc) provided
-        this->pipe_name = av[4];
-        this->read_named_pipe(pipe_name);
-    }
-    else {
-        this->pipe_name = "";
-    }
-}
-void InputArgs::read_named_pipe(std::string pipe_name) {
-    std::ifstream pipe_file(pipe_name);
-    if(pipe_file.fail()){
-        std::cout << "Unable to access the file \"" << pipe_name << "\". Exiting.\n";
-        exit(EXIT_FAILURE);
-    }
-
-    std::string line;
-    bool is_first_line = true;
-    while (std::getline(pipe_file, line)) {
-        char *line_cstr = strdup(line.c_str());
-        if (is_first_line) {  
-            is_first_line = false;
-            
-            this->pipe_data.active_sys_id = strtok(line_cstr, " ");
-            
-            // data collector socket addr:
-            std::string dc_addr = strtok(NULL, " ");
-            if (dc_addr != ":")
-                this->pipe_data.data_collector_sock_addr = parse_socket_address(dc_addr);
-
-            // switcher mcast address:
-            std::string switcher_addr = strtok(NULL, " ");
-            if (switcher_addr != ":")
-                this->pipe_data.switcher_sock_addr = parse_socket_address(switcher_addr);
-        }
-        else {
-            SystemsData this_systems_data;
-            
-            // io_proc binary to use:
-            this_systems_data.binary_path = strtok(line_cstr, " ");
-
-            // spines ip addr and port to use with this io_process:
-            std::string sp_addr = strtok(NULL, " ");
-            this_systems_data.spinesd_sock_addr = parse_socket_address(sp_addr);
-                        
-            // id for this system
-            this_systems_data.id = strtok(NULL, " ");
-
-            // save:
-            this->pipe_data.systems_data.push_back(this_systems_data);
-        }
-
-        free(line_cstr);
-    }
-}
-
 void parse_socket_address(std::string ipaddr_colon_port, std::string &ipaddr, int &port) {
+    if (ipaddr_colon_port == ":") {
+        ipaddr = "";
+        port = -1;
+        return;
+    }
     int colon_pos = -1;
     colon_pos = ipaddr_colon_port.find(':');
     ipaddr = ipaddr_colon_port.substr(0, colon_pos);
@@ -372,17 +402,77 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
 }
 
+ClientManager::ClientManager(InputArgs args) {
+    this->client_type = args.client_type;
+    if (this->client_type == "hmi") {
+        HMIManager hmi_man;
+        this->hmi_manager = &hmi_man;
+    }
+    else if (this->client_type == "rtus_plcs") {
+        RTUsPLCsMessageBrokerManager rtu_man(args);
+        this->rtu_manager = &rtu_man;
+    }
+    else {
+        std::cout << "Invalid client type " << args.client_type << ". Exiting. \n";
+        exit(EXIT_FAILURE);
+    }
+}
+void ClientManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
+    this->io_proc_manager = io_proc_man;
+    if (this->client_type == "hmi") {
+        this->hmi_manager->set_io_proc_man_ref(this->io_proc_manager);
+    }
+    else if (this->client_type == "rtus_plcs") {
+        this->rtu_manager->set_io_proc_man_ref(this->io_proc_manager);
+    }
+    else {
+        std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
+        exit(EXIT_FAILURE);
+    }
+}
+void ClientManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
+    this->dc_manager = dc_man;
+    if (this->client_type == "hmi") {
+        this->hmi_manager->set_data_collector_man_ref(this->dc_manager);
+    }
+    else if (this->client_type == "rtus_plcs") {
+        this->rtu_manager->set_data_collector_man_ref(this->dc_manager);
+    }
+    else {
+        std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
+        exit(EXIT_FAILURE);
+    }
+}
+void ClientManager::init_listen_thread(pthread_t &thread) {
+    if (this->client_type == "hmi") {
+        this->hmi_manager->init_listen_thread(thread);
+    }
+    else if (this->client_type == "rtus_plcs") {
+        this->rtu_manager->init_listen_thread(thread);
+    }
+    else {
+        std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
+        exit(EXIT_FAILURE);
+    }
+}
+int ClientManager::send(signed_message* mess, int nbytes) {
+    if (this->client_type == "hmi") {
+        this->hmi_manager->send(mess, nbytes);
+    }
+    else if (this->client_type == "rtus_plcs") {
+        this->rtu_manager->send(mess, nbytes);
+    }
+    else {
+        std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
+        exit(EXIT_FAILURE);
+    }
+}
+
 RTUsPLCsMessageBrokerManager::RTUsPLCsMessageBrokerManager(InputArgs args) {
     this->proxy_id = args.proxy_id;
     this->num_of_plc_rtus = args.num_of_plc_rtus;
     this->spinesd_addr = args.spinesd_sock_addr;
     this->init_message_broker_processes_and_sockets();
-}
-void RTUsPLCsMessageBrokerManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
-    this->io_proc_manager = io_proc_man;
-}
-void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
-    this->dc_manager = dc_man;
 }
 void RTUsPLCsMessageBrokerManager::init_message_broker_processes_and_sockets() {
     /* initialize ipc_index_used_for_message_broker */
@@ -502,11 +592,11 @@ void RTUsPLCsMessageBrokerManager::init_listen_thread(pthread_t &thread) {
 
     // for pthread_create, we need a static member function. That adds some extra work (which is below). See IOProcManager::start_io_proc for more details on a similar case
 
-    pthread_create(&thread, NULL, RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock, (void *)this);
+    pthread_create(&thread, NULL, &RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock, (void *)this);
 }
-void * RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
-    // Receives any messages. Send them to all I/O processes
-    RTUsPLCsMessageBrokerManager * this_class_object = (RTUsPLCsMessageBrokerManager *) arg;
+void* RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
+    // Receives any messages. Send them to all I/O processes and the data collector
+    RTUsPLCsMessageBrokerManager* this_class_object = (RTUsPLCsMessageBrokerManager*) arg;
 
     fd_set mask, tmask;
     int num;
@@ -551,6 +641,38 @@ void * RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
     }
 
     return NULL;
+}
+int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
+    int in_list, rtu_dst, channel, ret2;
+    char buffer[MAX_LEN];
+
+    rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
+    /* enqueue in correct ipc */
+    in_list = key_value_get(rtu_dst, &channel);
+    if(in_list) {
+        int this_socket = this->sockets_to_from_rtus_plcs_via_ipc[channel];
+        std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this->protocol_data[channel].ipc_remote << "\n";
+        ret2 = IPC_Send(this_socket, buffer, nbytes, 
+            this->protocol_data[channel].ipc_remote);
+        if(ret2 != nbytes) {
+            std::cout << "PROXY: error delivering to RTU\n";
+        }
+        else {
+            std::cout << "PROXY: delivered to RTU\n";
+        }
+    }
+    else {
+        std::cout << "Error: Message from spines for rtu: " << rtu_dst << ", not my problem\n";
+    }
+    
+    return 0;
+}
+void RTUsPLCsMessageBrokerManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
+    this->io_proc_manager = io_proc_man;
+    
+}
+void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
+    this->dc_manager = dc_man;
 }
 
 SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man) {
@@ -610,6 +732,55 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     }
     // TODO: forward received messages to the DC
     return;
+}
+
+HMIManager::HMIManager() {
+    this->setup_ipc_for_hmi();
+}
+void HMIManager::setup_ipc_for_hmi() {
+    this->sockets.from = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMI-side-proxy communication
+    this->sockets.to = IPC_DGram_SendOnly_Sock(); // for HMI-side-proxy to HMI communication
+}
+void HMIManager::init_listen_thread(pthread_t &thread) {
+    // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
+    pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, NULL);
+}
+void* HMIManager::listen_on_hmi_sock(void *arg) {
+    // Receives any messages. Send them to all I/O processes and the data collector
+    HMIManager* this_class_object = (HMIManager*) arg;
+
+    int ret; 
+    char buf[MAX_LEN];
+    signed_message *mess;
+    int nbytes;
+
+    for (;;) {
+        std::cout << "Waiting to receive something on the HMI socket\n";
+        ret = IPC_Recv(this_class_object->sockets.from, buf, MAX_LEN);
+        if (ret < 0) {
+            std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
+        }
+        else {
+            std::cout << "Received a message from the HMI. ret = " << ret << "\n";
+            mess = (signed_message *)buf;
+            nbytes = sizeof(signed_message) + mess->len;
+            
+            this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nbytes);
+
+            this_class_object->dc_manager->send_to_dc(mess, nbytes, HMI_PROXY_HMI_CMD);
+        }
+    }
+    return NULL;
+}
+int HMIManager::send(signed_message* mess, int nbytes) {
+    IPC_Send(this->sockets.to, (void*) mess, nbytes, HMIPROXY_IPC_HMI);
+    return 0;
+}
+void HMIManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
+    this->io_proc_manager = io_proc_man;
+}
+void HMIManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
+    this->dc_manager = dc_man;
 }
 
 void process_config_msg(signed_message * conf_mess, int mess_size) {
