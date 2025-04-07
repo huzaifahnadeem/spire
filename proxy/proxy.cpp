@@ -36,7 +36,7 @@ InputArgs::InputArgs(int ac, char **av) {
 void InputArgs::print_usage() {
     std::cout 
         << "Invalid args\n" 
-        << "Usage: ./proxy -c client_type -id proxyID -sd spinesAddr:spinesPort -n Num_PLC_RTU -dt [named pipe name or file name to use multiple systems]\n" 
+        << "Usage: ./proxy -c client_type -sd spinesAddr:spinesPort [-id proxyID] [-n Num_PLC_RTU] [-dt <named pipe name or file name to use multiple systems>]\n" 
         << "use `-c` to specify the client's type. Valid options: `hmi`, `rtus_plcs`.\n"
         << "use `-id` to specify the Proxy ID for the RTUs/PLCs clients. Ignored for HMI clients.\n"
         << "use `-sd` to specify the Spines daemon's Socket Address (IPaddress:Port). If not using the -dt option (see below), then this daemon is used for all communication by this proxy.\n"
