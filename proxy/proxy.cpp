@@ -65,7 +65,7 @@ void InputArgs::parse_args(int argc, char **argv) {
         /* [-c client_type] */
         if ((argc > 1) && (!strncmp(*argv, "-c", 2))) {
             std::string this_arg = argv[1];
-            if ((this_arg != "hmi") || (this_arg != "rtus_plcs")) {
+            if ((this_arg != "hmi") && (this_arg != "rtus_plcs")) {
                 std::cout << "Invalid value provided for -c argument. Exiting.\n";
                 exit(EXIT_FAILURE);
             }
