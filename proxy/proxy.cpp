@@ -753,7 +753,7 @@ void HMIManager::setup_ipc_for_hmi() {
 }
 void HMIManager::init_listen_thread(pthread_t &thread) {
     // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
-    pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, NULL);
+    pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, (void *)this);
 }
 void* HMIManager::listen_on_hmi_sock(void *arg) {
     // Receives any messages. Send them to all I/O processes and the data collector
