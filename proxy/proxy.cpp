@@ -11,7 +11,8 @@ int main(int ac, char **av) {
     ClientManager client_manager(args);   
 
     // set up I/O Processes Manager
-    IOProcManager io_proc_manager(args, &data_collector_manager, &client_manager);
+    pthread_t ioprocs_events_thread;
+    IOProcManager io_proc_manager(args, &data_collector_manager, &client_manager, ioprocs_events_thread);
 
     // start client manager
     pthread_t client_listen_thread;
@@ -26,6 +27,7 @@ int main(int ac, char **av) {
     SwitcherManager switcher_manager(args, &io_proc_manager);
 
     // wait for any threads before exiting
+    pthread_join(ioprocs_events_thread, NULL);
     pthread_join(client_listen_thread, NULL);
     return EXIT_SUCCESS;
 }
@@ -147,8 +149,7 @@ void InputArgs::read_named_pipe(std::string pipe_name) {
     }
 }
 
-IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, ClientManager* client_man) {
-    // TODO: maybe this needs to be done in a thread
+IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, ClientManager* client_man, pthread_t &thread) {
     this->proxy_id = args.proxy_id;
     this->data_collector_manager = data_collector_manager;
     this->client_manager = client_man;
@@ -167,7 +168,13 @@ IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collect
             this->add_io_proc(this_system.id, this_system.binary_path, this_system.spinesd_sock_addr);
         }
     }
-
+    
+    // initialize libspread events handler (in a thread so that the code can move further)
+    pthread_create(&thread, NULL, &IOProcManager::init_libspread_events_handler, NULL);    
+}
+void* IOProcManager::init_libspread_events_handler(void* arg) {
+    UNUSED(arg);
+    
     E_init(); // initialize libspread events handler
     E_handle_events(); // will attach events later when IO processes are started
 }
