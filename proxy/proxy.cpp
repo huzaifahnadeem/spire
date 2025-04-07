@@ -30,7 +30,7 @@ int main(int ac, char **av) {
     // wait for any threads before exiting
     pthread_join(ioprocs_events_thread, NULL);
     pthread_join(client_listen_thread, NULL);
-    pthread_join(ioprocs_events_thread, NULL);
+    pthread_join(switcher_listen_thread, NULL);
     return EXIT_SUCCESS;
 }
 
@@ -179,6 +179,8 @@ void* IOProcManager::init_libspread_events_handler(void* arg) {
     
     E_init(); // initialize libspread events handler
     E_handle_events(); // will attach events later when IO processes are started
+
+    return NULL;
 }
 void IOProcManager::add_io_proc(std::string id, std::string bin_path, SocketAddress spines_address) {
     // add the data for a new io_proc (doesn't fork the process, though)
@@ -468,16 +470,19 @@ void ClientManager::init_listen_thread(pthread_t &thread) {
     }
 }
 int ClientManager::send(signed_message* mess, int nbytes) {
+    int ret = -1;
     if (this->client_type == "hmi") {
-        this->hmi_manager->send(mess, nbytes);
+        ret = this->hmi_manager->send(mess, nbytes);
     }
     else if (this->client_type == "rtus_plcs") {
-        this->rtu_manager->send(mess, nbytes);
+        ret = this->rtu_manager->send(mess, nbytes);
     }
     else {
         std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
         exit(EXIT_FAILURE);
     }
+
+    return ret;
 }
 
 RTUsPLCsMessageBrokerManager::RTUsPLCsMessageBrokerManager(InputArgs args) {
@@ -677,7 +682,7 @@ int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
         std::cout << "Error: Message from spines for rtu: " << rtu_dst << ", not my problem\n";
     }
     
-    return 0;
+    return ret2;
 }
 void RTUsPLCsMessageBrokerManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
     this->io_proc_manager = io_proc_man;
@@ -715,13 +720,15 @@ void SwitcherManager::setup_switcher_socket() {
       }
     std::cout << "Mcast setup done\n";
 }
-void* SwitcherManager::init_events_handler(void* args) {
+void* SwitcherManager::init_events_handler(void* arg) {
     SwitcherManager* this_class_object = (SwitcherManager*) arg;
     // set up an event handler for the switcher's messages
     E_init();
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
-    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this, HIGH_PRIORITY);
+    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, HIGH_PRIORITY);
     E_handle_events();
+
+    return NULL;
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     UNUSED(code);
@@ -788,8 +795,7 @@ void* HMIManager::listen_on_hmi_sock(void *arg) {
     return NULL;
 }
 int HMIManager::send(signed_message* mess, int nbytes) {
-    IPC_Send(this->sockets.to, (void*) mess, nbytes, HMIPROXY_IPC_HMI);
-    return 0;
+    return IPC_Send(this->sockets.to, (void*) mess, nbytes, HMIPROXY_IPC_HMI);
 }
 void HMIManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
     this->io_proc_manager = io_proc_man;
