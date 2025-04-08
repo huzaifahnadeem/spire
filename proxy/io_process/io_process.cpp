@@ -44,7 +44,7 @@ unsigned int Seq_Num;
 int ipc_sock_to_parent, ipc_sock_from_parent;
 system_ns::itrc_data ioproc_mainthread_to_itrcthread_data, ioproc_itr_client_data;
 std::string ipc_path_suffix;
-int proxy_id_for_itrc = 1; // only used for RTU/PLC clients
+int proxy_id_for_itrc = -1; // only used for RTU/PLC clients
 bool client_is_hmi;
 
 int main(int ac, char **av) {
@@ -165,10 +165,11 @@ void _itrc_init_hmi(std::string spinesd_ip_addr, int spinesd_port, system_ns::it
 
 void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port) {
     if (client_is_hmi) {
-        std::string prime_keys = ""; 
-        prime_keys = prime_keys + HMI_PRIME_KEYS;
-        std::string sm_keys = "";
-        sm_keys = sm_keys + HMI_SM_KEYS;
+        // std::string prime_keys = HMI_PRIME_KEYS; 
+        // std::string sm_keys = HMI_SM_KEYS;
+        // the above macro defines dont have the right relative path. so using the following: // TODO add/fix a macro defines
+        std::string prime_keys = "../prime/bin/keys"; 
+        std::string sm_keys = "../scada_master/sm_keys";
         _itrc_init_hmi( ioproc_spinesd_ip_addr, 
                     ioproc_spinesd_port, 
                     ioproc_mainthread_to_itrcthread_data, 
@@ -181,10 +182,8 @@ void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_por
         );
     }
     else { // client is PLC/RTU
-        std::string prime_keys = ""; 
-        prime_keys = prime_keys + PROXY_PRIME_KEYS;
-        std::string sm_keys = "";
-        sm_keys = sm_keys + PROXY_SM_KEYS;
+        std::string prime_keys = PROXY_PRIME_KEYS; 
+        std::string sm_keys = PROXY_SM_KEYS;
         _itrc_init_plcrtu( ioproc_spinesd_ip_addr, 
             ioproc_spinesd_port, 
             ioproc_mainthread_to_itrcthread_data, 

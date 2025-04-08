@@ -1,6 +1,8 @@
 #include "proxy.h"
 
 int main(int ac, char **av) {
+    E_init(); // initialize libspread events handler
+
     // the constructor reads input args and store the data in the data structures:
     InputArgs args(ac, av);
 
@@ -26,6 +28,8 @@ int main(int ac, char **av) {
     // sets up socket for the switcher messages and handle events:
     pthread_t switcher_listen_thread;
     SwitcherManager switcher_manager(args, &io_proc_manager, switcher_listen_thread);
+
+    E_handle_events(); // signal libspread events handler to start handling all the events for which fds were set by the objects above
 
     // wait for any threads before exiting
     pthread_join(ioprocs_events_thread, NULL);
@@ -163,9 +167,11 @@ IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collect
         std::string sys_id = "0"; // arbitrary
         std::string path = DEFAULT_IO_PROCESS_PATH;
         this->add_io_proc(sys_id, path, args.spinesd_sock_addr);
+        this->active_sys_id = sys_id;
     }
     else {
         // running with twins
+        this->active_sys_id = args.pipe_data.active_sys_id;
         for (auto & this_system : args.pipe_data.systems_data) {
             this->add_io_proc(this_system.id, this_system.binary_path, this_system.spinesd_sock_addr);
         }
@@ -177,8 +183,8 @@ IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collect
 void* IOProcManager::init_libspread_events_handler(void* arg) {
     UNUSED(arg);
     
-    E_init(); // initialize libspread events handler
-    E_handle_events(); // will attach events later when IO processes are started
+    // E_init(); // initialize libspread events handler
+    // E_handle_events(); // will attach events later when IO processes are started
 
     return NULL;
 }
@@ -189,24 +195,24 @@ void IOProcManager::add_io_proc(std::string id, std::string bin_path, SocketAddr
     this_io_proc.spines_addr = spines_address;
     
     this_io_proc.sockets.to = IPC_DGram_SendOnly_Sock(); // for sending something TO the child process (child being the IO Process)
-    this_io_proc.sockets.from = IPC_DGram_Sock((IPC_FROM_IOPROC_CHILD + id).c_str()); // for receiving something FROM the child process (child being the IO Process)
+    std::string ipc_path = (this->client_type == "hmi"? IPC_FROM_IOPROC_CHILD_CLIENTHMI: IPC_FROM_IOPROC_CHILD_CLIENTRTUPLC);
+    this_io_proc.sockets.from = IPC_DGram_Sock((ipc_path + id).c_str()); // for receiving something FROM the child process (child being the IO Process)
 
-    this->io_procs.insert({id, this_io_proc});
+    this->io_procs[id] = this_io_proc;
 }
 void IOProcManager::start_io_proc(std::string id) {
     // for the given id, this function forks a process to run that. It also sets up the message handler for any messages received from this process
-    this->fork_io_proc(io_procs[id], id);
+    this->fork_io_proc(this->io_procs[id], id);
 
     // Note that you cannot pass a non-static class memberfunction to E_attach_fd or to pthread_create.
     // and since this function that I am passing (io_proc_message_handler) uses non-static class member properties, it cannot be simply made static as is
     // So, I have made the function static and removed all direct references to 'this' object. Instead, to access object specific member properies, a reference to a specific object is passed
     // since we have a few args to pass to this function, I have made a simple struct 'this_fn_args_struct' to use to send the args. Inside the function I have the same struct and I cast the void * data to this struct and use the object inside instead of 'this'
-    struct this_fn_args_struct {
-        std::string id;
-        IOProcManager* class_obj;
-    };
-    this_fn_args_struct args_to_pass = {.id = id, .class_obj = this};
-    E_attach_fd(io_procs[id].sockets.from, READ_FD, IOProcManager::io_proc_message_handler, 0, (void*)&args_to_pass, MEDIUM_PRIORITY); 
+    
+    Args_io_proc_message_handler args_to_pass = {.id = id, .class_obj = this};
+    this->args_for_io_proc_message_handler[id] = args_to_pass;
+    Args_io_proc_message_handler* args_to_pass_ptr = &(this->args_for_io_proc_message_handler[id]);
+    E_attach_fd(io_procs[id].sockets.from, READ_FD, IOProcManager::io_proc_message_handler, 0, (void*)args_to_pass_ptr, MEDIUM_PRIORITY); 
     // E_handle_events(); // confirm if this needs to be called again
 }
 void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
@@ -242,6 +248,7 @@ void IOProcManager::kill_io_proc(std::string id) { // TODO: what if the active s
     IOProcess this_io_proc = io_procs[id];
     kill(this_io_proc.pid, SIGTERM); // TODO: what kind of signal should i send?
     E_detach_fd(this->io_procs[id].sockets.from, READ_FD); // tell the event handler that it no longer needs to handle for this socket
+    this->args_for_io_proc_message_handler[id] = NULL;
 }
 void IOProcManager::start_all_io_procs() {
     for (auto & [id, this_io_proc]: this->io_procs) {
@@ -255,20 +262,16 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
     // It is called by listen_for_messages_from_ioproc()
 
     UNUSED(code);
-    struct this_fn_args_struct {
-        std::string id;
-        IOProcManager* class_obj;
-    }; // since this is a static function, I cannot use 'this'. Instead a reference to a class object is passes as an argument (which is of this specific struct's type)
-    this_fn_args_struct this_fn_args = *(this_fn_args_struct *) data;
-    std::string message_is_from = this_fn_args.id;
-    IOProcManager* this_class_obj = this_fn_args.class_obj;
+    Args_io_proc_message_handler* this_fn_args = (Args_io_proc_message_handler *) data;
+    std::string message_is_from = this_fn_args->id;
+    IOProcManager* this_class_obj = this_fn_args->class_obj; // since this is a static function, I cannot use 'this'. Instead a reference to a class object is passes as an argument (which is of this specific struct's type)
 
     int ret; 
     int nbytes;
     char buffer[MAX_LEN];
     signed_message *mess;
 
-    std::cout << "There is a message from system " << message_is_from << ":\n";
+    std::cout << "There is a message from system with ID: " << message_is_from << "\n";
 
     // Receive the message on the socket
     ret = IPC_Recv(sock, buffer, MAX_LEN);
@@ -311,8 +314,9 @@ void IOProcManager::send_msg_to_all_procs(signed_message *msg, int nbytes) {
     for (auto & [id, this_io_proc]: this->io_procs) {
         std::cout << "PROXY: message from proxy, sending to SM (via IO Process with system ID " << id << ")\n";
         int this_sock = this_io_proc.sockets.to;
+        std::string ipc_path = (this->client_type == "hmi"? IPC_TO_IOPROC_CHILD_CLIENTHMI: IPC_TO_IOPROC_CHILD_CLIENTRTUPLC);
         std::string this_path_suffix = id;
-        ret = IPC_Send(this_sock, (void *)msg, nbytes, (IPC_TO_IOPROC_CHILD + this_path_suffix).c_str());
+        ret = IPC_Send(this_sock, (void *)msg, nbytes, (ipc_path + this_path_suffix).c_str());
         if(ret != nbytes) {
             std::cout << "PROXY: error sending to SM (via IO Process with system ID "<< id << "). ret = " << ret << "\n";
         }
@@ -419,12 +423,10 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
 ClientManager::ClientManager(InputArgs args) {
     this->client_type = args.client_type;
     if (this->client_type == "hmi") {
-        HMIManager hmi_man;
-        this->hmi_manager = &hmi_man;
+        this->hmi_manager.init(args);
     }
     else if (this->client_type == "rtus_plcs") {
-        RTUsPLCsMessageBrokerManager rtu_man(args);
-        this->rtu_manager = &rtu_man;
+        this->rtu_manager.init(args);
     }
     else {
         std::cout << "Invalid client type " << args.client_type << ". Exiting. \n";
@@ -434,10 +436,10 @@ ClientManager::ClientManager(InputArgs args) {
 void ClientManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
     this->io_proc_manager = io_proc_man;
     if (this->client_type == "hmi") {
-        this->hmi_manager->set_io_proc_man_ref(this->io_proc_manager);
+        this->hmi_manager.set_io_proc_man_ref(this->io_proc_manager);
     }
     else if (this->client_type == "rtus_plcs") {
-        this->rtu_manager->set_io_proc_man_ref(this->io_proc_manager);
+        this->rtu_manager.set_io_proc_man_ref(this->io_proc_manager);
     }
     else {
         std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
@@ -447,10 +449,10 @@ void ClientManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
 void ClientManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
     this->dc_manager = dc_man;
     if (this->client_type == "hmi") {
-        this->hmi_manager->set_data_collector_man_ref(this->dc_manager);
+        this->hmi_manager.set_data_collector_man_ref(this->dc_manager);
     }
     else if (this->client_type == "rtus_plcs") {
-        this->rtu_manager->set_data_collector_man_ref(this->dc_manager);
+        this->rtu_manager.set_data_collector_man_ref(this->dc_manager);
     }
     else {
         std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
@@ -459,10 +461,10 @@ void ClientManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
 }
 void ClientManager::init_listen_thread(pthread_t &thread) {
     if (this->client_type == "hmi") {
-        this->hmi_manager->init_listen_thread(thread);
+        this->hmi_manager.init_listen_thread(thread);
     }
     else if (this->client_type == "rtus_plcs") {
-        this->rtu_manager->init_listen_thread(thread);
+        this->rtu_manager.init_listen_thread(thread);
     }
     else {
         std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
@@ -472,10 +474,10 @@ void ClientManager::init_listen_thread(pthread_t &thread) {
 int ClientManager::send(signed_message* mess, int nbytes) {
     int ret = -1;
     if (this->client_type == "hmi") {
-        ret = this->hmi_manager->send(mess, nbytes);
+        ret = this->hmi_manager.send(mess, nbytes);
     }
     else if (this->client_type == "rtus_plcs") {
-        ret = this->rtu_manager->send(mess, nbytes);
+        ret = this->rtu_manager.send(mess, nbytes);
     }
     else {
         std::cout << "Invalid client type " << this->client_type << ". Exiting. \n";
@@ -485,7 +487,12 @@ int ClientManager::send(signed_message* mess, int nbytes) {
     return ret;
 }
 
-RTUsPLCsMessageBrokerManager::RTUsPLCsMessageBrokerManager(InputArgs args) {
+RTUsPLCsMessageBrokerManager::RTUsPLCsMessageBrokerManager() {
+    // nothing here. initialized with `init` fn
+    // doing it like this because ClientManager has a property for both RTUsPLCsMessageBrokerManager and HMIManager
+    // but in a given proxy instance only one of them is used so this way we only run `init` for the one we are using
+}
+void RTUsPLCsMessageBrokerManager::init(InputArgs args) {
     this->proxy_id = args.proxy_id;
     this->num_of_plc_rtus = args.num_of_plc_rtus;
     this->spinesd_addr = args.spinesd_sock_addr;
@@ -693,6 +700,15 @@ void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManag
 }
 
 SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pthread_t &thread) {
+    // check if there is a switcher in the system (if switcher addr is set to default vals then assume no)
+    if (args.pipe_data.switcher_sock_addr.ip_addr == "" && args.pipe_data.switcher_sock_addr.port == -1) {
+        this->no_switcher = true;
+        return;
+    }
+    else {
+        this->no_switcher = false;
+    }
+
     this->mcast_addr = args.pipe_data.switcher_sock_addr;
     this->spinesd_addr = args.spinesd_sock_addr;
     this->io_proc_manager = io_proc_man;
@@ -700,6 +716,9 @@ SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pt
     pthread_create(&thread, NULL, &SwitcherManager::init_events_handler, (void *)this);
 }
 void SwitcherManager::setup_switcher_socket() {
+    if (this->no_switcher)
+        return;
+    
     // set up the mcast socket:
     int retry_wait_sec = 2;
     int proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
@@ -722,17 +741,22 @@ void SwitcherManager::setup_switcher_socket() {
 }
 void* SwitcherManager::init_events_handler(void* arg) {
     SwitcherManager* this_class_object = (SwitcherManager*) arg;
+    if (this_class_object->no_switcher)
+        return NULL;
+
     // set up an event handler for the switcher's messages
-    E_init();
+    // E_init();
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
-    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, HIGH_PRIORITY);
-    E_handle_events();
+    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, MEDIUM_PRIORITY);
+    // E_handle_events();
 
     return NULL;
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     UNUSED(code);
     SwitcherManager * this_class_object = (SwitcherManager *) data;
+    if (this_class_object->no_switcher)
+        return;
     
     int ret;
     byte buff[this_class_object->switch_message_max_size];
@@ -757,6 +781,11 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
 }
 
 HMIManager::HMIManager() {
+    // nothing here. initialized with `init` fn
+    // doing it like this because ClientManager has a property for both RTUsPLCsMessageBrokerManager and HMIManager
+    // but in a given proxy instance only one of them is used so this way we only run `init` for the one we are using
+}
+void HMIManager::init(InputArgs args) {
     this->setup_ipc_for_hmi();
 }
 void HMIManager::setup_ipc_for_hmi() {
@@ -765,34 +794,38 @@ void HMIManager::setup_ipc_for_hmi() {
 }
 void HMIManager::init_listen_thread(pthread_t &thread) {
     // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
-    pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, (void *)this);
+    // pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, (void *)this);
+    
+    // set up an event handler
+    // E_init();
+    // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
+    E_attach_fd(this->sockets.from, READ_FD, HMIManager::listen_on_hmi_sock, 0, (void *)this, MEDIUM_PRIORITY);
+    // E_handle_events();
 }
-void* HMIManager::listen_on_hmi_sock(void *arg) {
+void HMIManager::listen_on_hmi_sock(int sock, int code, void *data) {
     // Receives any messages. Send them to all I/O processes and the data collector
-    HMIManager* this_class_object = (HMIManager*) arg;
+    HMIManager* this_class_object = (HMIManager*) data;
+    UNUSED(code);
 
     int ret; 
     char buf[MAX_LEN];
     signed_message *mess;
     int nbytes;
 
-    for (;;) {
-        std::cout << "Waiting to receive something on the HMI socket\n";
-        ret = IPC_Recv(this_class_object->sockets.from, buf, MAX_LEN);
-        if (ret < 0) {
-            std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
-        }
-        else {
-            std::cout << "Received a message from the HMI. ret = " << ret << "\n";
-            mess = (signed_message *)buf;
-            nbytes = sizeof(signed_message) + mess->len;
-            
-            this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nbytes);
-
-            this_class_object->dc_manager->send_to_dc(mess, nbytes, HMI_PROXY_HMI_CMD);
-        }
+    std::cout << "Receiving something on the HMI socket\n";
+    ret = IPC_Recv(sock, buf, MAX_LEN);
+    if (ret < 0) {
+        std::cout << "HMI-proxy: IPC_Rev failed. ret = " << ret << "\n";
     }
-    return NULL;
+    else {
+        std::cout << "Received a message from the HMI. ret = " << ret << "\n";
+        mess = (signed_message *)buf;
+        nbytes = sizeof(signed_message) + mess->len;
+        
+        this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nbytes);
+
+        this_class_object->dc_manager->send_to_dc(mess, nbytes, HMI_PROXY_HMI_CMD);
+    }
 }
 int HMIManager::send(signed_message* mess, int nbytes) {
     return IPC_Send(this->sockets.to, (void*) mess, nbytes, HMIPROXY_IPC_HMI);

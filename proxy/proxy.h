@@ -33,8 +33,10 @@ extern "C" {
 
 // macro defines:
 #define DEFAULT_IO_PROCESS_PATH "./io_process/io_process"
-#define IPC_FROM_IOPROC_CHILD "/tmp/ssproxy_ipc_ioproc_to_proxy"
-#define IPC_TO_IOPROC_CHILD "/tmp/ssproxy_ipc_proxy_to_ioproc"
+#define IPC_FROM_IOPROC_CHILD_CLIENTRTUPLC "/tmp/ssproxy_ipc_ioproc_to_proxy"
+#define IPC_TO_IOPROC_CHILD_CLIENTRTUPLC "/tmp/ssproxy_ipc_proxy_to_ioproc"
+#define IPC_FROM_IOPROC_CHILD_CLIENTHMI "/tmp/hmiproxy_ipc_ioproc_to_proxy"
+#define IPC_TO_IOPROC_CHILD_CLIENTHMI "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
 struct Switcher_Message {
     std::string new_active_system_id;
@@ -106,6 +108,10 @@ class IOProcManager {
             pid_t pid;
             IPCSocket sockets;
         };
+        struct Args_io_proc_message_handler { // this struct is used to wrap around the args for IOProcManager::io_proc_message_handler()
+            std::string id;
+            IOProcManager* class_obj;
+        };
 
         std::unordered_map<std::string, IOProcess> io_procs;
         std::string active_sys_id = "";
@@ -113,6 +119,7 @@ class IOProcManager {
         DataCollectorManager* data_collector_manager = NULL;
         ClientManager* client_manager = NULL;
         std::string client_type = "";
+        std::unordered_map<std::string, Args_io_proc_message_handler*> args_for_io_proc_message_handler; // since the fn receives a memory address, need to put the args somewhere so that the garbage collectore doesnt reclaim that memory (and cause seg faults)
 
         void fork_io_proc(IOProcess &io_proc, std::string id);
         static void io_proc_message_handler(int sock, int code, void *data);
@@ -127,6 +134,7 @@ class IOProcManager {
         void send_msg_to_all_procs(signed_message* msg, int nbytes);
         void update_active_system_id(std::string new_sys_id);
 };
+
 class RTUsPLCsMessageBrokerManager {
     private:
         std::string proxy_id;
@@ -143,7 +151,8 @@ class RTUsPLCsMessageBrokerManager {
         static void* listen_on_rtus_plcs_sock(void *arg);
         
     public:
-        RTUsPLCsMessageBrokerManager(InputArgs args);
+        RTUsPLCsMessageBrokerManager();
+        void init(InputArgs args);
         int send(signed_message* mess, int nbytes);
         void set_data_collector_man_ref(DataCollectorManager * dc_man);
         void set_io_proc_man_ref(IOProcManager * io_proc_man);
@@ -162,10 +171,11 @@ class HMIManager {
         IOProcManager* io_proc_manager = NULL;
 
         void setup_ipc_for_hmi();
-        static void* listen_on_hmi_sock(void *arg);
+        static void listen_on_hmi_sock(int sock, int code, void *data);
         
     public:       
         HMIManager();
+        void init(InputArgs args);
         void init_listen_thread(pthread_t &thread);
         int send(signed_message* mess, int nbytes);
         void set_data_collector_man_ref(DataCollectorManager * dc_man);
@@ -176,8 +186,8 @@ class ClientManager {
     private:
         IOProcManager* io_proc_manager = NULL;
         DataCollectorManager* dc_manager = NULL;
-        RTUsPLCsMessageBrokerManager* rtu_manager = NULL;
-        HMIManager* hmi_manager = NULL;
+        RTUsPLCsMessageBrokerManager rtu_manager;
+        HMIManager hmi_manager;
 
         std::string client_type = "";
 
@@ -198,14 +208,14 @@ class SwitcherManager {
         int switcher_socket = -1;
         struct ip_mreq mcast_membership;
         IOProcManager * io_proc_manager;
+        bool no_switcher = true;
         
         void setup_switcher_socket();
         static void* init_events_handler(void* arg);
         static void handle_switcher_message(int sock, int code, void* data);
     
     public:
-        SwitcherManager(InputArgs args, IOProcManager* io_proc_man, pthread_t &thread);
-        
+        SwitcherManager(InputArgs args, IOProcManager* io_proc_man, pthread_t &thread);      
 };
 
 void parse_socket_address(char* socket_address, std::string &ipaddr, int &port);
