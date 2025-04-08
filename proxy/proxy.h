@@ -123,7 +123,6 @@ class IOProcManager {
 
         void fork_io_proc(IOProcess &io_proc, std::string id);
         static void io_proc_message_handler(int sock, int code, void *data);
-        static void* init_libspread_events_handler(void* arg);
         
     public:
         IOProcManager(InputArgs args, DataCollectorManager* data_collector_manager, ClientManager* rtuplc_man, pthread_t &thread);

@@ -175,18 +175,7 @@ IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collect
         for (auto & this_system : args.pipe_data.systems_data) {
             this->add_io_proc(this_system.id, this_system.binary_path, this_system.spinesd_sock_addr);
         }
-    }
-    
-    // initialize libspread events handler (in a thread so that the code can move further)
-    pthread_create(&thread, NULL, &IOProcManager::init_libspread_events_handler, NULL);    
-}
-void* IOProcManager::init_libspread_events_handler(void* arg) {
-    UNUSED(arg);
-    
-    // E_init(); // initialize libspread events handler
-    // E_handle_events(); // will attach events later when IO processes are started
-
-    return NULL;
+    } 
 }
 void IOProcManager::add_io_proc(std::string id, std::string bin_path, SocketAddress spines_address) {
     // add the data for a new io_proc (doesn't fork the process, though)
@@ -213,7 +202,6 @@ void IOProcManager::start_io_proc(std::string id) {
     this->args_for_io_proc_message_handler[id] = args_to_pass;
     Args_io_proc_message_handler* args_to_pass_ptr = &(this->args_for_io_proc_message_handler[id]);
     E_attach_fd(io_procs[id].sockets.from, READ_FD, IOProcManager::io_proc_message_handler, 0, (void*)args_to_pass_ptr, MEDIUM_PRIORITY); 
-    // E_handle_events(); // confirm if this needs to be called again
 }
 void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
     // child -- run program on path
@@ -744,12 +732,8 @@ void* SwitcherManager::init_events_handler(void* arg) {
     if (this_class_object->no_switcher)
         return NULL;
 
-    // set up an event handler for the switcher's messages
-    // E_init();
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
     E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, MEDIUM_PRIORITY);
-    // E_handle_events();
-
     return NULL;
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
@@ -794,13 +778,9 @@ void HMIManager::setup_ipc_for_hmi() {
 }
 void HMIManager::init_listen_thread(pthread_t &thread) {
     // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
-    // pthread_create(&thread, NULL, &HMIManager::listen_on_hmi_sock, (void *)this);
     
-    // set up an event handler
-    // E_init();
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
     E_attach_fd(this->sockets.from, READ_FD, HMIManager::listen_on_hmi_sock, 0, (void *)this, MEDIUM_PRIORITY);
-    // E_handle_events();
 }
 void HMIManager::listen_on_hmi_sock(int sock, int code, void *data) {
     // Receives any messages. Send them to all I/O processes and the data collector
