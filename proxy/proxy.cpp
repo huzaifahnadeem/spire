@@ -13,8 +13,7 @@ int main(int ac, char **av) {
     ClientManager client_manager(args);   
 
     // set up I/O Processes Manager
-    pthread_t ioprocs_events_thread;
-    IOProcManager io_proc_manager(args, &data_collector_manager, &client_manager, ioprocs_events_thread);
+    IOProcManager io_proc_manager(args, &data_collector_manager, &client_manager);
 
     // start client manager
     pthread_t client_listen_thread;
@@ -32,7 +31,6 @@ int main(int ac, char **av) {
     E_handle_events(); // signal libspread events handler to start handling all the events for which fds were set by the objects above
 
     // wait for any threads before exiting
-    pthread_join(ioprocs_events_thread, NULL);
     pthread_join(client_listen_thread, NULL);
     pthread_join(switcher_listen_thread, NULL);
     return EXIT_SUCCESS;
@@ -155,7 +153,7 @@ void InputArgs::read_named_pipe(std::string pipe_name) {
     }
 }
 
-IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, ClientManager* client_man, pthread_t &thread) {
+IOProcManager::IOProcManager(InputArgs args, DataCollectorManager * data_collector_manager, ClientManager* client_man) {
     this->proxy_id = args.proxy_id;
     this->data_collector_manager = data_collector_manager;
     this->client_manager = client_man;

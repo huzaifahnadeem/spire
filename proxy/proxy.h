@@ -125,7 +125,7 @@ class IOProcManager {
         static void io_proc_message_handler(int sock, int code, void *data);
         
     public:
-        IOProcManager(InputArgs args, DataCollectorManager* data_collector_manager, ClientManager* rtuplc_man, pthread_t &thread);
+        IOProcManager(InputArgs args, DataCollectorManager* data_collector_manager, ClientManager* rtuplc_man);
         void add_io_proc(std::string id, std::string bin_path, SocketAddress spines_addr);
         void start_io_proc(std::string id);
         void start_all_io_procs();
