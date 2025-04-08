@@ -9,8 +9,8 @@ extern "C" {
 }
 
 Args args;
-std::queue <Switch_Message> pending_messages;
-const int switch_message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
+std::queue <Switcher_Message> pending_messages;
+const int Switcher_Message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
 
 int main(int ac, char **av) {
     parse_args(ac, av);
@@ -76,7 +76,7 @@ void* read_input_pipe(void* fn_arg) {
     while (true) {
         std::cin >> input;
 
-        Switch_Message message_to_send = {.new_system_index = std::stoi(input)};
+        Switcher_Message message_to_send = {.new_active_system_id = input};
         pending_messages.push(message_to_send);
     }
 
@@ -96,7 +96,7 @@ void* read_input_pipe(void* fn_arg) {
     // }
 
     // // create the message based on what was read on the input pipe
-    // Switch_Message message_to_send;
+    // Switcher_Message message_to_send;
     // pending_messages.push(message_to_send);
 
     return NULL;
@@ -137,11 +137,11 @@ void* send_pending_messages_to_proxies(void* fn_args) {
     int ret, num_bytes;
     while (true) {
         if (!pending_messages.empty()) {
-            Switch_Message next_mesage = pending_messages.front();
+            Switcher_Message next_mesage = pending_messages.front();
             pending_messages.pop();
             
-            // TODO think about how to use switch_message_max_size here. the proxies need a max length when receiving messages
-            num_bytes = sizeof(Switch_Message);
+            // TODO think about how to use Switcher_Message_max_size here. the proxies need a max length when receiving messages
+            num_bytes = sizeof(Switcher_Message);
             ret = spines_sendto(spines_connection.socket, (void *)&next_mesage, num_bytes, 0, (struct sockaddr *)&spines_connection.dest, sizeof(struct sockaddr)); 
             if(ret != num_bytes){
                 std::cout << "Error: Spines sendto ret != num_bytes\n";

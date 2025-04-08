@@ -16,6 +16,7 @@
 #include <unordered_map>
 
 #include "../data_collector/data_collector_packets.h"
+#include "../switcher/switcher_packets.h"
 
 extern "C" {
     #include "common/net_wrapper.h" 
@@ -37,10 +38,6 @@ extern "C" {
 #define IPC_TO_IOPROC_CHILD_CLIENTRTUPLC "/tmp/ssproxy_ipc_proxy_to_ioproc"
 #define IPC_FROM_IOPROC_CHILD_CLIENTHMI "/tmp/hmiproxy_ipc_ioproc_to_proxy"
 #define IPC_TO_IOPROC_CHILD_CLIENTHMI "/tmp/hmiproxy_ipc_proxy_to_ioproc"
-
-struct Switcher_Message {
-    std::string new_active_system_id;
-}; // TODO: put this somewhere common to the proxies and the switcher
 
 struct SocketAddress {
     std::string ip_addr = "";
@@ -174,8 +171,8 @@ class HMIManager {
         
     public:       
         HMIManager();
-        void init(InputArgs args);
-        void init_listen_thread(pthread_t &thread);
+        void init();
+        void init_listen_thread();
         int send(signed_message* mess, int nbytes);
         void set_data_collector_man_ref(DataCollectorManager * dc_man);
         void set_io_proc_man_ref(IOProcManager * io_proc_man);

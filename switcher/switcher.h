@@ -8,6 +8,7 @@
 #include <cstring> // for memcpy
 
 #include "../data_collector/data_collector_packets.h"
+#include "./switcher_packets.h"
 
 struct Args {
     std::string spinesd_ipaddr;
@@ -22,10 +23,6 @@ struct Spines_Connection {
     int socket;
     sockaddr_in dest;
 };
-
-struct Switch_Message {
-    int new_system_index;
-}; // TODO: put this somewhere common to the proxies and the switcher
 
 struct Proxy_Messages_Thread_Args {
     Spines_Connection spines_conn;

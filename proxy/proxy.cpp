@@ -409,7 +409,7 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
 ClientManager::ClientManager(InputArgs args) {
     this->client_type = args.client_type;
     if (this->client_type == "hmi") {
-        this->hmi_manager.init(args);
+        this->hmi_manager.init();
     }
     else if (this->client_type == "rtus_plcs") {
         this->rtu_manager.init(args);
@@ -447,7 +447,7 @@ void ClientManager::set_data_collector_man_ref(DataCollectorManager * dc_man) {
 }
 void ClientManager::init_listen_thread(pthread_t &thread) {
     if (this->client_type == "hmi") {
-        this->hmi_manager.init_listen_thread(thread);
+        this->hmi_manager.init_listen_thread();
     }
     else if (this->client_type == "rtus_plcs") {
         this->rtu_manager.init_listen_thread(thread);
@@ -653,8 +653,9 @@ void* RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
     return NULL;
 }
 int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
-    int in_list, rtu_dst, channel, ret2;
+    int in_list, rtu_dst, channel;
     char buffer[MAX_LEN];
+    int ret = -1;
 
     rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
     /* enqueue in correct ipc */
@@ -662,9 +663,9 @@ int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
     if(in_list) {
         int this_socket = this->sockets_to_from_rtus_plcs_via_ipc[channel];
         std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this->protocol_data[channel].ipc_remote << "\n";
-        ret2 = IPC_Send(this_socket, buffer, nbytes, 
+        ret = IPC_Send(this_socket, buffer, nbytes, 
             this->protocol_data[channel].ipc_remote);
-        if(ret2 != nbytes) {
+        if(ret != nbytes) {
             std::cout << "PROXY: error delivering to RTU\n";
         }
         else {
@@ -675,7 +676,7 @@ int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
         std::cout << "Error: Message from spines for rtu: " << rtu_dst << ", not my problem\n";
     }
     
-    return ret2;
+    return ret;
 }
 void RTUsPLCsMessageBrokerManager::set_io_proc_man_ref(IOProcManager * io_proc_man) {
     this->io_proc_manager = io_proc_man;
@@ -767,14 +768,14 @@ HMIManager::HMIManager() {
     // doing it like this because ClientManager has a property for both RTUsPLCsMessageBrokerManager and HMIManager
     // but in a given proxy instance only one of them is used so this way we only run `init` for the one we are using
 }
-void HMIManager::init(InputArgs args) {
+void HMIManager::init() {
     this->setup_ipc_for_hmi();
 }
 void HMIManager::setup_ipc_for_hmi() {
     this->sockets.from = IPC_DGram_Sock(HMI_IPC_HMIPROXY); // for HMI to HMI-side-proxy communication
     this->sockets.to = IPC_DGram_SendOnly_Sock(); // for HMI-side-proxy to HMI communication
 }
-void HMIManager::init_listen_thread(pthread_t &thread) {
+void HMIManager::init_listen_thread() {
     // The thread listens for command messages coming from the HMI and forwards it to the the io_processes (which then send it to their ITRC_Client). The thread also forwards it to the data collector
     
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
