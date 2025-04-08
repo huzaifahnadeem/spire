@@ -248,7 +248,7 @@ void IOProcManager::kill_io_proc(std::string id) { // TODO: what if the active s
     IOProcess this_io_proc = io_procs[id];
     kill(this_io_proc.pid, SIGTERM); // TODO: what kind of signal should i send?
     E_detach_fd(this->io_procs[id].sockets.from, READ_FD); // tell the event handler that it no longer needs to handle for this socket
-    this->args_for_io_proc_message_handler[id] = NULL;
+    this->args_for_io_proc_message_handler.erase(id);
 }
 void IOProcManager::start_all_io_procs() {
     for (auto & [id, this_io_proc]: this->io_procs) {

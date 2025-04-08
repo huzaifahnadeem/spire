@@ -119,7 +119,7 @@ class IOProcManager {
         DataCollectorManager* data_collector_manager = NULL;
         ClientManager* client_manager = NULL;
         std::string client_type = "";
-        std::unordered_map<std::string, Args_io_proc_message_handler*> args_for_io_proc_message_handler; // since the fn receives a memory address, need to put the args somewhere so that the garbage collectore doesnt reclaim that memory (and cause seg faults)
+        std::unordered_map<std::string, Args_io_proc_message_handler> args_for_io_proc_message_handler; // since the fn receives a memory address, need to put the args somewhere so that the garbage collectore doesnt reclaim that memory (and cause seg faults)
 
         void fork_io_proc(IOProcess &io_proc, std::string id);
         static void io_proc_message_handler(int sock, int code, void *data);
