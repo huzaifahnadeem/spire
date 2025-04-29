@@ -1,7 +1,9 @@
 extern "C" {
     #include "../common/scada_packets.h"
 }
+#include "../switcher/switcher_packets.h"
 
+#define SWITCHER_MSG            00  // message from a switcher
 #define RTU_PROXY_MAIN_MSG      10  // message from main, received at the RTU proxy
 #define RTU_PROXY_SHADOW_MSG    11  // message from shadow, received at the RTU proxy
 #define RTU_PROXY_RTU_DATA      12  // message from RTU/PLC (contains RTU_DATA) received at the RTU proxy

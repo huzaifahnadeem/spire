@@ -708,7 +708,7 @@ void SwitcherManager::setup_switcher_socket() {
     
     // set up the mcast socket:
     int retry_wait_sec = 2;
-    int proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
+    int proto = SPINES_PRIORITY; // options: SPINES_RELIABLE and SPINES_PRIORITY
     while (true) {
         this->switcher_socket = Spines_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, proto, this->mcast_addr.port);
         if (this->switcher_socket < 0 ) {

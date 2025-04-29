@@ -1,13 +1,20 @@
 #include "data_collector.h"
 
+std::string data_file_path;
 int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon
     int spinesd_port;
     int my_port; // the port this data collector receives messages on
-    std::string data_file_path;
+    std::string mcast_sock_addr;
 
-    parse_args(ac, av, spinesd_ip_addr, spinesd_port, my_port, data_file_path);
+    parse_args(ac, av, spinesd_ip_addr, spinesd_port, my_port, data_file_path, mcast_sock_addr);
 
+    struct mcast_connection mcast_conn;
+    set_up_mcast_sock(spinesd_ip_addr, spinesd_port, mcast_sock_addr, mcast_conn);
+    pthread_t mcast_handler_thread;
+    pthread_create(&mcast_handler_thread, NULL, &listen_on_mcast_sock, (void *) &mcast_conn);
+
+    // set up spines sock for proxy messages:
     int proto, spines_sock, num, ret;
     struct timeval spines_timeout, *t;
     fd_set mask, tmask;
@@ -32,6 +39,7 @@ int main(int ac, char **av) {
         t = NULL;
     }
 
+    // handle proxy messages:
     while (1) {
         tmask = mask;
         num = select(FD_SETSIZE, &tmask, NULL, NULL, t);
@@ -79,18 +87,19 @@ int main(int ac, char **av) {
         }
     }
 
-    return 0;
+    pthread_join(mcast_handler_thread, NULL);
+    return EXIT_SUCCESS;
 }
 
 void usage_check(int ac, char **av) {
     if (ac != 4) {
         printf("Invalid args\n");
-        printf("Usage: %s spinesAddr:spinesPort dataCollectorPort dataLogFilePath\n", av[0]);
+        printf("Usage: %s spinesAddr:spinesPort dataCollectorPort mcastAddr:mcastPort dataLogFilePath\nTo ignore mcastAddr:mcastPort arg, just enter ':' in its place\n", av[0]);
         exit(EXIT_FAILURE);
     }
 }
 
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path) {
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path, std::string &mcast_sock_addr) {
     usage_check(ac, av);
 
     int colon_pos;
@@ -106,8 +115,11 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     // data collector (my) port:
     my_port = std::stoi(my_port_arg);
 
+    // mcast address (to receive the switcher's messages on):
+    mcast_sock_addr = av[3];
+
     // data file:
-    data_file_path = av[3];
+    data_file_path = av[4];
 }
 
 // void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
@@ -292,4 +304,94 @@ void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &
     int sender_port = sa->sin_port;
     ipaddr = ip;
     port = sender_port;
+}
+
+void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string mcast_sock_addr, struct mcast_connection &mcast_conn) {
+    if (mcast_sock_addr == ":") { // ":" implies no mcast addr so ignore
+        mcast_conn.sock = -1;
+        return;
+    }
+
+    // parse mcast sock address (mcastIPaddr:mcastPort -> mcastIP, mcastPort)
+    int colon_pos = -1;
+    colon_pos = mcast_sock_addr.find(':');
+    mcast_conn.ipaddr = mcast_sock_addr.substr(0, colon_pos);
+    mcast_conn.port = std::stoi(mcast_sock_addr.substr(colon_pos + 1));
+
+    // set up the mcast socket:
+    int retry_wait_sec = 2;
+    int proto = SPINES_PRIORITY; // options: SPINES_RELIABLE and SPINES_PRIORITY
+    while (true) {
+        mcast_conn.sock = Spines_Sock(spinesd_ipaddr.c_str(), spinesd_port, proto, mcast_conn.port);
+        if (mcast_conn.sock < 0 ) {
+            std::cout << "Error setting the multicast socket for the switcher. Trying again in " << retry_wait_sec << "sec\n";
+            sleep(retry_wait_sec);
+        }
+        else {
+            break;
+        }
+    }
+    mcast_conn.membership.imr_multiaddr.s_addr = inet_addr(mcast_conn.ipaddr.c_str());
+    mcast_conn.membership.imr_interface.s_addr = htonl(INADDR_ANY);
+    if (spines_setsockopt(mcast_conn.sock, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&mcast_conn.membership, sizeof(mcast_conn.membership)) < 0) {
+        std::cout << "Mcast: problem in setsockopt to join multicast address";
+      }
+    std::cout << "Mcast setup done\n";
+}
+void* listen_on_mcast_sock(void* fn_args) {
+    struct mcast_connection mcast_conn = *((struct mcast_connection*) fn_args);
+    if (mcast_conn.sock == -1) // if there was no mcast addr provided
+        return NULL;
+
+    int ret;
+    byte buff[switcher_message_max_size];
+    struct sockaddr_in from_addr;
+    socklen_t from_len = sizeof(from_addr);
+    Switcher_Message * message;
+    
+    while (true) {
+        ret = spines_recvfrom(mcast_conn.sock, buff, switcher_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
+        if (ret < 0) {
+            std::cout << "Switcher Message Handler: Error receving the message\n";
+        }
+        else {
+            if ((unsigned long) ret < sizeof(Switcher_Message)){
+                std::cout << "Switcher Message Handler: Error - The received message is smaller than expected\n";
+                continue;
+            }
+            message = (Switcher_Message*) buff;
+            write_data(data_file_path, message, mcast_conn.ipaddr, mcast_conn.port);
+        }
+    }
+    return NULL;
+}
+
+void write_data(std::string data_file_path_og, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
+    // initially, just keeping it simple so our 'database' is just a file
+    // later on we can have something better like a proper database or whatever is needed.
+
+    std::time_t timestamp;
+    std::ofstream datafile;
+    
+    std::string data_file_path = data_file_path_og + ".switcher.txt";
+    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    datafile << "=== New Entry ===\n";
+    datafile << "Time: " << std::ctime(&timestamp); 
+    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";    
+
+    std::string data_stream_str;
+    data_stream_str = "SWITCHER_MSG";
+
+    datafile << "Data Stream: " << data_stream_str << "\n";
+    
+    std::string msg_type_str;
+    msg_type_str = " [== SWITCHER_MSG]";
+
+    datafile << "Data: \n";
+    // datafile << "\t" << "->sig:\t\t"                          << data->sig << "\n";
+    datafile << "\t" << switcher_message->new_active_system_id;
+
+    datafile << "=== End Entry ===\n\n";
+    datafile.close();
 }

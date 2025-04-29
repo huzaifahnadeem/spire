@@ -25,7 +25,7 @@ int main(int ac, char **av) {
     // run a thread that sends out any messages to the proxies
     pthread_t proxy_messages_thread;
     Proxy_Messages_Thread_Args message_thread_args = {.spines_conn = spines_connection};
-    pthread_create(&proxy_messages_thread, NULL, &send_pending_messages_to_proxies, (void*) &message_thread_args);
+    pthread_create(&proxy_messages_thread, NULL, &send_pending_messages_to_mcast_group, (void*) &message_thread_args);
 
     // wait for the threads before exiting
     pthread_join(read_input_pipe_thread, NULL);
@@ -36,7 +36,7 @@ int main(int ac, char **av) {
 
 void parse_args(int argc, char **argv) {
     std::stringstream usage_stream;
-    usage_stream << "Usage: ./switcher spinesIP:port mcastIP:port proxy_info_file input_pipe_name\n";
+    usage_stream << "Usage: ./switcher spinesIP:port mcastIP:port input_pipe_name\n";
     std::string usage = usage_stream.str();
 
 
@@ -64,9 +64,8 @@ void parse_args(int argc, char **argv) {
     args.mcast_ipaddr = mcast_ipaddr;
     args.mcast_port = mcast_port;
 
-    // rest of the args -- the proxy info file and input pipe name arguments:
-    args.proxy_info_file = argv[3];
-    args.input_pipe_name = argv[4];
+    // input pipe name arg:
+    args.input_pipe_name = argv[3];
 }
 
 void* read_input_pipe(void* fn_arg) {
@@ -132,7 +131,7 @@ Spines_Connection setup_spines_multicast_socket() {
     return connection;
 }
 
-void* send_pending_messages_to_proxies(void* fn_args) {
+void* send_pending_messages_to_mcast_group(void* fn_args) {
     Spines_Connection spines_connection = ((struct Proxy_Messages_Thread_Args*)fn_args)->spines_conn;
     int ret, num_bytes;
     while (true) {

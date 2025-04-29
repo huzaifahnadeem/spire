@@ -15,7 +15,6 @@ struct Args {
     int spinesd_port;
     std::string mcast_ipaddr;
     int mcast_port;
-    std::string proxy_info_file;
     std::string input_pipe_name;
 };
 
@@ -33,4 +32,4 @@ struct Proxy_Messages_Thread_Args {
 void parse_args(int ac, char **av);
 void* read_input_pipe(void* fn_arg);
 Spines_Connection setup_spines_multicast_socket();
-void* send_pending_messages_to_proxies(void* fn_args);
+void* send_pending_messages_to_mcast_group(void* fn_args);
