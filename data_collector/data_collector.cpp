@@ -389,8 +389,10 @@ void write_data(std::string data_file_path_og, Switcher_Message * switcher_messa
     msg_type_str = " [== SWITCHER_MSG]";
 
     datafile << "Data: \n";
-    // datafile << "\t" << "->sig:\t\t"                          << data->sig << "\n";
-    datafile << "\t" << switcher_message->new_active_system_id;
+    datafile << "\tnew_active_system_id: " << switcher_message->new_active_system_id << "\n";
+    datafile << "\tadd_io_proc_path: " << switcher_message->add_io_proc_path << "\n";
+    datafile << "\tadd_io_proc_id: " << switcher_message->add_io_proc_id << "\n";
+    datafile << "\tremove_io_proc_id: " << switcher_message->remove_io_proc_id << "\n";
 
     datafile << "=== End Entry ===\n\n";
     datafile.close();
