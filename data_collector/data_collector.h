@@ -38,4 +38,4 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
 void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port);
 void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string mcast_sock_addr, struct mcast_connection &mcast_conn);
 void* listen_on_mcast_sock(void* fn_args);
-void write_data(std::string data_file_path, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port); // for switcher messages
+void write_data(std::string data_file_path, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port); // for switcher messages

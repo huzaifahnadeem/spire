@@ -366,7 +366,7 @@ void* listen_on_mcast_sock(void* fn_args) {
     return NULL;
 }
 
-void write_data(std::string data_file_path_og, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
+void write_data(std::string data_file_path_og, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
 
