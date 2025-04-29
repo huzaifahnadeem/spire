@@ -129,6 +129,7 @@ class IOProcManager {
         void kill_io_proc(std::string id);
         void send_msg_to_all_procs(signed_message* msg, int nbytes);
         void update_active_system_id(std::string new_sys_id);
+        std::string get_active_sys_id();
 };
 
 class RTUsPLCsMessageBrokerManager {

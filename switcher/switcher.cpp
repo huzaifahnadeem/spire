@@ -78,7 +78,7 @@ void* read_input_pipe(void* fn_arg) {
         // the following commands can be sent:
         // 1. change active system id (other vals are "")
         // 2. add new io proc with given path and optional id (if id not given then path will be the id).
-        // 3. #2 but also change the id to something else. id will be changed after adding an io proc so that only a single command is needed to add a new io proc then change to it
+        // 3. #2 but also change the active id to something else. id will be changed after adding an io proc so that only a single command is needed to add a new io proc then change to it
         // 4. remove an io proc that is not active
         // 5. remove an io proc that is currently active then change to the new given active id (if you try to remove currently active sys without giving a new active sys id, then command ignored)
         
@@ -89,6 +89,9 @@ void* read_input_pipe(void* fn_arg) {
         std::cout << "\add_io_proc_path: ";
         std::cin >> input;
         message_to_send.add_io_proc_path = input;
+        std::cout << "\add_io_proc_spinesd_addr: ";
+        std::cin >> input;
+        message_to_send.add_io_proc_spinesd_addr = input;
         std::cout << "\add_io_proc_id: ";
         std::cin >> input;
         message_to_send.add_io_proc_id = input;

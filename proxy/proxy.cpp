@@ -229,7 +229,12 @@ void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
         }
     }
 }
-void IOProcManager::kill_io_proc(std::string id) { // TODO: what if the active system is killed?
+void IOProcManager::kill_io_proc(std::string id) {
+    // ignore if the active system is requested to be killed
+    if (id == this->get_active_sys_id()) {
+        std::cout << "IOProcManager::kill_io_proc: ignoring request to kill the active io process\n";
+        return;
+    }
     // kills the process and lets the event handler know it should no longer listen for any messages
     IOProcess this_io_proc = io_procs[id];
     kill(this_io_proc.pid, SIGTERM); // TODO: what kind of signal should i send?
@@ -320,6 +325,9 @@ void IOProcManager::update_active_system_id(std::string new_sys_id) {
     else {
        std::cout << "Switcher sent an invalid key for the new active system. Sent ID = " << new_sys_id << ". Request was ignored\n";
     }
+}
+std::string IOProcManager::get_active_sys_id() {
+    return this->active_sys_id;
 }
 
 void parse_socket_address(std::string ipaddr_colon_port, std::string &ipaddr, int &port) {
@@ -757,7 +765,24 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             return;
         }
         message = (Switcher_Message*) buff;
-        this_class_object->io_proc_manager->update_active_system_id(message->new_active_system_id);
+
+        // add a new io proc, if message has that info:
+        if (message->add_io_proc_path != "" && message->add_io_proc_spinesd_addr != "") {
+            // if add_io_proc_id not provided then just use the path as the id
+            std::string new_io_proc_id = (message->add_io_proc_id == ""? message->add_io_proc_path: message->add_io_proc_id);
+            this_class_object->io_proc_manager->add_io_proc(new_io_proc_id, message->add_io_proc_path, parse_socket_address(message->add_io_proc_spinesd_addr));
+        }
+        
+        // update the active system id, if message has that info:
+        if (message->new_active_system_id != "") {
+            this_class_object->io_proc_manager->update_active_system_id(message->new_active_system_id);
+        }
+
+        // remove an io proc, if message has that info:
+        if (message->remove_io_proc_id != "") {
+            // this fn ignores the request if removing the currently active io proc:
+            this_class_object->io_proc_manager->kill_io_proc(message->remove_io_proc_id);
+        }
     }
     // TODO: forward received messages to the DC
     return;
