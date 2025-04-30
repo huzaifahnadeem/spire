@@ -766,6 +766,10 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         }
         message = (Switcher_Message*) buff;
 
+        // ignore if empty message
+        if (message->new_active_system_id == "" && message->add_io_proc_path == "" && message->add_io_proc_spinesd_addr == "" && message->add_io_proc_id == "" && message->remove_io_proc_id == "")
+            return;
+            
         // add a new io proc, if message has that info:
         if (message->add_io_proc_path != "" && message->add_io_proc_spinesd_addr != "") {
             // if add_io_proc_id not provided then just use the path as the id
