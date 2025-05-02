@@ -18,6 +18,7 @@ extern "C" {
     #include "../common/def.h"
     #include "../common/itrc.h"
     #include "spines_lib.h"
+    #include "../prime/libspread-util/include/spu_events.h" // import libspread. for its event handler functions
 }
 
 #define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines

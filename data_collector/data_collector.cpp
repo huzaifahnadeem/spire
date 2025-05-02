@@ -92,7 +92,7 @@ int main(int ac, char **av) {
 }
 
 void usage_check(int ac, char **av) {
-    if (ac != 4) {
+    if (ac != 5) {
         printf("Invalid args\n");
         printf("Usage: %s spinesAddr:spinesPort dataCollectorPort mcastAddr:mcastPort dataLogFilePath\nTo ignore mcastAddr:mcastPort arg, just enter ':' in its place\n", av[0]);
         exit(EXIT_FAILURE);
@@ -338,11 +338,10 @@ void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string
       }
     std::cout << "Mcast setup done\n";
 }
-void* listen_on_mcast_sock(void* fn_args) {
-    struct mcast_connection mcast_conn = *((struct mcast_connection*) fn_args);
-    if (mcast_conn.sock == -1) // if there was no mcast addr provided
-        return NULL;
 
+void handle_mcast_message(int sock, int code, void *data) {
+    struct mcast_connection mcast_conn = *((struct mcast_connection*) data);
+    
     int ret;
     byte buff[switcher_message_max_size];
     struct sockaddr_in from_addr;
@@ -350,7 +349,7 @@ void* listen_on_mcast_sock(void* fn_args) {
     Switcher_Message * message;
     
     while (true) {
-        ret = spines_recvfrom(mcast_conn.sock, buff, switcher_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
+        ret = spines_recvfrom(sock, buff, switcher_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
         if (ret < 0) {
             std::cout << "Switcher Message Handler: Error receving the message\n";
         }
@@ -360,9 +359,21 @@ void* listen_on_mcast_sock(void* fn_args) {
                 continue;
             }
             message = (Switcher_Message*) buff;
+            std::cout << "a message was received from the switcher. \n";
             write_data(data_file_path, message, mcast_conn.ipaddr, mcast_conn.port);
         }
     }
+}
+
+void* listen_on_mcast_sock(void* fn_args) {
+    struct mcast_connection mcast_conn = *((struct mcast_connection*) fn_args);
+    if (mcast_conn.sock == -1) // if there was no mcast addr provided
+        return NULL;
+
+    E_init();
+    E_attach_fd(mcast_conn.sock, READ_FD, handle_mcast_message, 0, (void *) &mcast_conn, HIGH_PRIORITY);
+    E_handle_events();
+    
     return NULL;
 }
 

@@ -12,11 +12,13 @@ Args args;
 std::queue <Switcher_Message> pending_messages;
 const int Switcher_Message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
 
+Spines_Connection* spines_connection_global = NULL;
 int main(int ac, char **av) {
     parse_args(ac, av);
 
     // set up a spines multicast socket
     Spines_Connection spines_connection = setup_spines_multicast_socket();
+    spines_connection_global = &spines_connection;
 
     // run a thread that checks for and reads and input coming in on the named input pipe
     pthread_t read_input_pipe_thread;
@@ -85,21 +87,29 @@ void* read_input_pipe(void* fn_arg) {
         Switcher_Message message_to_send;
         std::cout << "\nnew_active_system_id: ";
         std::cin >> input;
-        message_to_send.new_active_system_id = input;
-        std::cout << "\add_io_proc_path: ";
+        message_to_send.new_active_system_id = (input == "."? "": input); // treat "." as an empty string
+        std::cout << "\nadd_io_proc_path: ";
         std::cin >> input;
-        message_to_send.add_io_proc_path = input;
-        std::cout << "\add_io_proc_spinesd_addr: ";
+        message_to_send.add_io_proc_path = (input == "."? "": input);
+        std::cout << "\nadd_io_proc_spinesd_addr: ";
         std::cin >> input;
-        message_to_send.add_io_proc_spinesd_addr = input;
-        std::cout << "\add_io_proc_id: ";
+        message_to_send.add_io_proc_spinesd_addr = (input == "."? "": input);
+        std::cout << "\nadd_io_proc_id: ";
         std::cin >> input;
-        message_to_send.add_io_proc_id = input;
-        std::cout << "\remove_io_proc_id: ";
+        message_to_send.add_io_proc_id = (input == "."? "": input);
+        std::cout << "\nremove_io_proc_id: ";
         std::cin >> input;
-        message_to_send.remove_io_proc_id = input;
+        message_to_send.remove_io_proc_id = (input == "."? "": input);
 
-        pending_messages.push(message_to_send);
+        // pending_messages.push(message_to_send);
+        int num_bytes = sizeof(Switcher_Message);
+        int ret = spines_sendto(spines_connection_global->socket, (void *)&message_to_send, num_bytes, 0, (struct sockaddr *)&(spines_connection_global->dest), sizeof(struct sockaddr)); 
+        if(ret != num_bytes) {
+            std::cout << "Error: Spines sendto ret != num_bytes\n";
+        }
+        else {
+            std::cout << "Messages passed to spines successfully\n";
+        }
     }
 
     
@@ -126,7 +136,7 @@ void* read_input_pipe(void* fn_arg) {
 
 Spines_Connection setup_spines_multicast_socket() {
     int proto, socket, reconnect_wait_time_sec, ttl;
-    proto = SPINES_RELIABLE; // options: SPINES_RELIABLE and SPINES_PRIORITY
+    proto = SPINES_PRIORITY; // options: SPINES_RELIABLE and SPINES_PRIORITY
     reconnect_wait_time_sec = 2;
     ttl = 255; // not sure what is the purpose. copied from the config_manager's code
     socket = -1;
@@ -165,8 +175,11 @@ void* send_pending_messages_to_mcast_group(void* fn_args) {
             // TODO think about how to use Switcher_Message_max_size here. the proxies need a max length when receiving messages
             num_bytes = sizeof(Switcher_Message);
             ret = spines_sendto(spines_connection.socket, (void *)&next_mesage, num_bytes, 0, (struct sockaddr *)&spines_connection.dest, sizeof(struct sockaddr)); 
-            if(ret != num_bytes){
+            if(ret != num_bytes) {
                 std::cout << "Error: Spines sendto ret != num_bytes\n";
+            }
+            else {
+                std::cout << "Messages passed to spines successfully\n";
             }
         }
     }
