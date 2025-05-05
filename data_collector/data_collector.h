@@ -8,6 +8,7 @@
 #include <string.h> // string operations
 #include <sys/select.h> // select statement
 #include <arpa/inet.h>
+#include <sys/un.h>
 
 #include "data_collector_packets.h"
 #include "../switcher/switcher_packets.h"
@@ -40,3 +41,6 @@ void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &
 void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string mcast_sock_addr, struct mcast_connection &mcast_conn);
 void* listen_on_mcast_sock(void* fn_args);
 void write_data(std::string data_file_path, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port); // for switcher messages
+
+// // specifically for management network (avoids using SPINES_INT_PORT & SPINES_EXT_PORT)
+// int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port);

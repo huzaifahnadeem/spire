@@ -14,6 +14,7 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <sys/un.h>
 
 #include "../data_collector/data_collector_packets.h"
 #include "../switcher/switcher_packets.h"
@@ -224,3 +225,9 @@ SocketAddress parse_socket_address(char* socket_address);
 
 void process_config_msg(signed_message * conf_mess,int mess_size);
 int string_to_protocol(char * prot);
+
+// // specifically for management network (avoids using SPINES_INT_PORT & SPINES_EXT_PORT)
+// int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port);
+// int my_Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto);
+
+void temp_test_switcher_msgs(std::string proxy_output); // TODO remove

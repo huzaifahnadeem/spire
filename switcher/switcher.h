@@ -6,9 +6,14 @@
 #include <arpa/inet.h>
 #include <netdb.h> // for struct hostent
 #include <cstring> // for memcpy
+#include <sys/un.h>
 
-#include "../data_collector/data_collector_packets.h"
 #include "./switcher_packets.h"
+#include "../data_collector/data_collector_packets.h"
+
+extern "C" {
+    #include "../spines/libspines/spines_lib.h"
+}
 
 struct Args {
     std::string spinesd_ipaddr;

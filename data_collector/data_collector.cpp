@@ -320,7 +320,7 @@ void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string
 
     // set up the mcast socket:
     int retry_wait_sec = 2;
-    int proto = SPINES_PRIORITY; // options: SPINES_RELIABLE and SPINES_PRIORITY
+    int proto = SPINES_PRIORITY; // note that even though the option are `SPINES_RELIABLE` and `SPINES_PRIORITY`. Only `SPINES_PRIORITY` is compatible with mcast. the other one wont work
     while (true) {
         mcast_conn.sock = Spines_Sock(spinesd_ipaddr.c_str(), spinesd_port, proto, mcast_conn.port);
         if (mcast_conn.sock < 0 ) {
@@ -360,6 +360,7 @@ void handle_mcast_message(int sock, int code, void *data) {
             }
             message = (Switcher_Message*) buff;
             std::cout << "a message was received from the switcher. \n";
+            // TODO: confirm, sometimes seg faults on non-empty messages (maybe line breaks ?)
             write_data(data_file_path, message, mcast_conn.ipaddr, mcast_conn.port);
         }
     }
@@ -408,3 +409,94 @@ void write_data(std::string data_file_path_og, Switcher_Message * switcher_messa
     datafile << "=== End Entry ===\n\n";
     datafile.close();
 }
+
+// // used by my_Spines_Sock (defined right below this fn)
+// int my_Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto) 
+// {
+//     int sk, ret, protocol;
+//     struct sockaddr_in spines_addr;
+//     struct sockaddr_un spines_uaddr;
+//     int16u prio, kpaths;
+//     spines_nettime exp;
+
+//     memset(&spines_addr, 0, sizeof(spines_addr));
+
+//     printf("Initiating Spines connection: %s:%d\n", sp_addr, sp_port);
+//     spines_addr.sin_family = AF_INET;
+//     spines_addr.sin_port   = htons(sp_port);
+//     spines_addr.sin_addr.s_addr = inet_addr(sp_addr);
+
+//     spines_uaddr.sun_family = AF_UNIX;
+//     sprintf(spines_uaddr.sun_path, "%s%d", "/tmp/spines", sp_port);
+
+//     protocol = 8 | (proto << 8);
+
+//     /* printf("Creating IPC spines_socket\n");
+//     sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr); */
+   
+//     if ((int)inet_addr(sp_addr) == My_IP) {
+//         printf("Creating default spines_socket\n");
+//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr);
+//     }
+//     else {
+//         printf("Creating inet spines_socket\n");
+//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, 
+//                 (struct sockaddr *)&spines_addr);
+//     }
+//     if (sk < 0) {
+//         perror("Spines_Sock: error creating spines socket!");
+//         return sk;
+//     }
+
+//     /* setup kpaths = 1 */
+//     kpaths = 1;
+//     if ((ret = spines_setsockopt(sk, 0, SPINES_DISJOINT_PATHS, (void *)&kpaths, sizeof(int16u))) < 0) {
+//         printf("Spines_Sock: spines_setsockopt failed for disjoint paths = %u\n", kpaths);
+//         return ret;
+//     }
+
+//     /* setup priority level and garbage collection settings for Priority Messaging */
+//     prio = SCADA_PRIORITY;
+//     exp.sec  = 5;
+//     exp.usec = 0;
+
+//     if (proto == SPINES_PRIORITY) {
+//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_EXPIRATION, (void *)&exp, sizeof(spines_nettime))) < 0) {
+//             printf("Spines_Sock: error setting expiration time to %u sec %u usec\n", exp.sec, exp.usec);
+//             return ret;
+//         }
+
+//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_PRIORITY, (void *)&prio, sizeof(int16u))) < 0) {
+//             printf("Spines_Sock: error setting priority to %u\n", prio);
+//             return ret;
+//         }
+//     }
+
+//     return sk;
+// }
+
+// // the `Spines_Sock` function from net_wrapper.c uses some spire-specific macro defines (SPINES_INT_PORT & SPINES_EXT_PORT) and i would need to make some changes there or somewhere else to allow having a management network. so i adapt the function here
+// int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port) 
+// {
+//     int sk, ret;
+//     struct sockaddr_in my_addr;
+    
+//     sk = my_Spines_SendOnly_Sock(sp_addr, sp_port, proto);
+//     if (sk < 0) {
+//         perror("Spines_Sock: failure to connect to spines");
+//         return sk;
+//     }
+
+//     memset(&my_addr, 0, sizeof(my_addr));
+//     my_addr.sin_family = AF_INET;
+//     my_addr.sin_addr.s_addr = My_IP;
+//     my_addr.sin_port = htons(my_port);
+
+//     ret = spines_bind(sk, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_in));
+//     if (ret < 0) {
+//         perror("Spines_Sock: bind error!");
+//         return ret;
+//     }
+
+//     return sk;
+// }
