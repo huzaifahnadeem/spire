@@ -122,192 +122,16 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     data_file_path = av[4];
 }
 
-// this is the old function before moving to csv. TODO: remove
-void write_data_txt(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
-    // initially, just keeping it simple so our 'database' is just a file
-    // later on we can have something better like a proper database or whatever is needed.
-    signed_message *data = &data_packet->system_message;
-
-    std::time_t timestamp;
-    std::ofstream datafile;
-    
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
-    timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    datafile << "=== New Entry ===\n";
-    datafile << "Time: " << std::ctime(&timestamp); 
-    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";    
-
-    std::string data_stream_str;
-    switch (data_packet->data_stream) {
-        case RTU_PROXY_MAIN_MSG:
-            data_stream_str = "RTU_PROXY_MAIN_MSG";
-            break;
-        case RTU_PROXY_SHADOW_MSG:
-            data_stream_str = "RTU_PROXY_SHADOW_MSG";
-            break;
-        case RTU_PROXY_RTU_DATA:
-            data_stream_str = "RTU_PROXY_RTU_DATA";
-            break;
-        case HMI_PROXY_MAIN_MSG:
-            data_stream_str = "HMI_PROXY_MAIN_MSG";
-            break;
-        case HMI_PROXY_SHADOW_MSG:
-            data_stream_str = "HMI_PROXY_SHADOW_MSG";
-            break;
-        case HMI_PROXY_HMI_CMD:
-            data_stream_str = "HMI_PROXY_HMI_CMD";
-            break;
-        default:
-            "<unknown data stream>";
-    }
-    datafile << "Data Stream: " << data_stream_str << "\n";
-    
-    std::string msg_type_str;
-    switch (data->type) {
-    case HMI_COMMAND:
-        msg_type_str = " [== HMI_COMMAND]";
-        break;
-    case HMI_UPDATE:
-        msg_type_str = " [== HMI_UPDATE]";
-        break;
-    case PRIME_OOB_CONFIG_MSG:
-        msg_type_str = " [== PRIME_OOB_CONFIG_MSG]";
-        break;
-    case RTU_FEEDBACK:
-        msg_type_str = " [== RTU_FEEDBACK]";
-        break;
-    case RTU_DATA:
-        msg_type_str = " [== RTU_DATA]";
-        break;
-    default:
-        " [<unknown type>]";
-    }
-
-    datafile << "Data: \n";
-    // datafile << "\t" << "->sig:\t\t"                          << data->sig << "\n";
-    datafile << "\t" << "->sig:\t\t< ";
-    
-    for (int i = 0; i < SIGNATURE_SIZE; i++) {
-        datafile << (int)data->sig[i] << "";
-    }
-    datafile << " >\n";
-    
-    datafile << "\t" << "->mt_num:\t\t"                       << data->mt_num << "\n";
-    datafile << "\t" << "->mt_index:\t\t"                     << data->mt_index << "\n";
-    datafile << "\t" << "->site_id:\t\t"                      << data->site_id << "\n";
-    datafile << "\t" << "->machine_id:\t\t"                   << data->machine_id << "\n";
-    datafile << "\t" << "->len:\t\t"                          << data->len << "\n";
-    datafile << "\t" << "->type:\t\t"                         << data->type << msg_type_str << "\n";
-    datafile << "\t" << "->incarnation:\t\t"                  << data->incarnation << "\n";
-    datafile << "\t" << "->monotonic_counter:\t\t"            << data->monotonic_counter << "\n";
-    datafile << "\t" << "->global_configuration_number:\t\t"  << data->global_configuration_number << "\n";
-    datafile << "\t" << "->message content follows:\n";
-
-    if (data->type == HMI_COMMAND) { // This type is SENT BY the HMI
-        hmi_command_msg * msg_content = NULL;
-        msg_content = (hmi_command_msg *)(data + 1);
-        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
-        datafile << "\t\t" << "->seq.incarnation:\t\t"  << msg_content_seq.incarnation << "\n";
-        datafile << "\t\t" << "->seq.seq_num:\t\t"      << msg_content_seq.seq_num << "\n";
-        datafile << "\t\t" << "->hmi_id:\t\t"           << msg_content->hmi_id << "\n";
-        datafile << "\t\t" << "->scen_type:\t\t"        << msg_content->scen_type << "\n";
-        datafile << "\t\t" << "->type:\t\t"             << msg_content->type << "\n";
-        datafile << "\t\t" << "->ttip_pos:\t\t"         << msg_content->ttip_pos << "\n";
-    }
-    else if (data->type == HMI_UPDATE) { // This type is RECEIVED BY the HMI-side Proxy
-        hmi_update_msg * msg_content = NULL;
-        msg_content = (hmi_update_msg *)(data + 1);
-        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
-        datafile << "\t\t" << "->seq.incarnation:\t\t"     << msg_content_seq.incarnation << "\n";
-        datafile << "\t\t" << "->seq.seq_num:\t\t"         << msg_content_seq.seq_num << "\n";
-        datafile << "\t\t" << "->scen_type:\t\t"           << msg_content->scen_type << "\n";
-        datafile << "\t\t" << "->sec:\t\t"                 << msg_content->sec << "\n";
-        datafile << "\t\t" << "->usec:\t\t"                << msg_content->usec << "\n";
-        datafile << "\t\t" << "->len:\t\t"                 << msg_content->len << "\n";
-    }
-    else if (data->type == PRIME_OOB_CONFIG_MSG) { // This type is RECEIVED BY the HMI-side Proxy & the RTU/PLC-side Proxy (from ITRC)
-        config_message * msg_content = NULL;
-        msg_content = (config_message *)(data + 1);
-        datafile << "\t\t" << "->N:\t\t"                        << msg_content->N << "\n";
-        datafile << "\t\t" << "->f:\t\t"                        << msg_content->f << "\n";
-        datafile << "\t\t" << "->k:\t\t"                        << msg_content->k << "\n";
-        datafile << "\t\t" << "->num_sites:\t\t"                << msg_content->num_sites << "\n";
-        datafile << "\t\t" << "->num_cc:\t\t"                   << msg_content->num_cc << "\n";
-        datafile << "\t\t" << "->num_dc:\t\t"                   << msg_content->num_dc << "\n";
-        datafile << "\t\t" << "->num_cc_replicas:\t\t"          << msg_content->num_cc_replicas << "\n";
-        datafile << "\t\t" << "->num_dc_replicas:\t\t"          << msg_content->num_dc_replicas << "\n";
-        datafile << "\t\t" << "->tpm_based_id:\t\t"             << msg_content->tpm_based_id << "\n";
-        datafile << "\t\t" << "->replica_flag:\t\t"             << msg_content->replica_flag << "\n";
-        datafile << "\t\t" << "->sm_addresses:\t\t"             << msg_content->sm_addresses << "\n";
-        datafile << "\t\t" << "->spines_ext_addresses:\t\t"     << msg_content->spines_ext_addresses << "\n";
-        datafile << "\t\t" << "->spines_ext_port:\t\t"          << msg_content->spines_ext_port << "\n";
-        datafile << "\t\t" << "->spines_int_addresses:\t\t"     << msg_content->spines_int_addresses << "\n";
-        datafile << "\t\t" << "->spines_int_port:\t\t"          << msg_content->spines_int_port << "\n";
-        datafile << "\t\t" << "->prime_addresses:\t\t"          << msg_content->prime_addresses << "\n";
-        datafile << "\t\t" << "->initial_state:\t\t"            << msg_content->initial_state << "\n";
-        datafile << "\t\t" << "->initial_state_digest:\t\t"     << msg_content->initial_state_digest << "\n";
-        datafile << "\t\t" << "->frag_num:\t\t"                 << msg_content->frag_num << "\n";
-    }
-    else if (data->type == RTU_FEEDBACK) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from ITRC)
-        rtu_feedback_msg * msg_content = NULL;
-        msg_content = (rtu_feedback_msg *)(data + 1);
-        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
-        datafile << "\t\t" << "->seq.incarnation:\t\t"          << msg_content_seq.incarnation << "\n";
-        datafile << "\t\t" << "->seq.seq_num:\t\t"              << msg_content_seq.seq_num << "\n";
-        datafile << "\t\t" << "->scen_type:\t\t"                << msg_content->scen_type << "\n";
-        datafile << "\t\t" << "->type:\t\t"                     << msg_content->type << "\n";
-        datafile << "\t\t" << "->sub:\t\t"                      << msg_content->sub << "\n";
-        datafile << "\t\t" << "->rtu:\t\t"                      << msg_content->rtu << "\n";
-        datafile << "\t\t" << "->offset:\t\t"                   << msg_content->offset << "\n";
-        datafile << "\t\t" << "->val:\t\t"                      << msg_content->val << "\n";
-    }
-    else if (data->type == RTU_DATA) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from RTUs/PLCs)
-        rtu_data_msg * msg_content = NULL;
-        msg_content = (rtu_data_msg *)(data + 1);
-        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
-        datafile << "\t\t" << "->seq.incarnation:\t\t"      << msg_content_seq.incarnation << "\n";
-        datafile << "\t\t" << "->seq.seq_num:\t\t"          << msg_content_seq.seq_num << "\n";
-        datafile << "\t\t" << "->rtu_id:\t\t"               << msg_content->rtu_id << "\n";
-        datafile << "\t\t" << "->scen_type:\t\t"            << msg_content->scen_type << "\n";
-        datafile << "\t\t" << "->sec:\t\t"                  << msg_content->sec << "\n";
-        datafile << "\t\t" << "->usec:\t\t"                 << msg_content->usec << "\n";
-        datafile << "\t\t" << "->data (payload):\n";
-        pnnl_fields * payload = (pnnl_fields *)msg_content->data; // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
-        datafile << "\t\t\t->padd1:"<< payload->padd1 << "\n";
-        datafile << "\t\t\t->point: [";
-        for (int i = 0; i < NUM_POINT; i++) {
-            datafile << payload->point[i] << ((i < NUM_POINT-1) ? ", " : ""); // adding a comma to make it print nicer. dont print comma for the last element
-        }
-        datafile << "]\n";
-        datafile << "\t\t\t->breaker_read: [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_read[i] << ((i < NUM_BREAKER-1) ? ", " : ""); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
-        }
-        datafile << "]\n";
-        datafile << "\t\t\t->breaker_write: [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_write[i] << ((i < NUM_BREAKER-1) ? ", " : "");
-        }
-        datafile << "]\n";
-    }
-    else {
-        std::cout << "Received a message of an unknown type. Type = " << data->type << ".\n";
-        datafile << "\t\t" << "<Unknown Type = "<< data->type << ">\n";
-    }
-
-    datafile << "=== End Entry ===\n\n";
-    datafile.close();
-}
-
 void write_data_yaml(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
     // note that data_file_path can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
     
-    const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation per yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
+    const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation for yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
 
+    std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
     std::ofstream datafile;
     
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    datafile.open((system_id + data_file_path).c_str(), std::ios_base::app); // open in append mode
     datafile << "# === New Entry ===\n"; // a yaml comment
     
     auto now = std::chrono::system_clock::now();
@@ -490,10 +314,6 @@ void write_data_yaml(std::string data_file_path, struct DataCollectorPacket * da
 }
 
 void write_data(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
-    // old: TODO: remove
-    // write_data_txt(data_file_path, data_packet, sender_ipaddr, sender_port);
-    
-    // new:
     write_data_yaml(data_file_path, data_packet, sender_ipaddr, sender_port);
 }
 
