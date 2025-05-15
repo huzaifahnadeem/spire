@@ -2,6 +2,8 @@
 
 const std::string default_logs_path = "./logs/";
 std::string log_files_dir;
+std::unordered_map<std::string, std::string> log_files_map;
+
 int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon
     int spinesd_port;
@@ -128,6 +130,33 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     else {
         log_files_dir = log_files_dir + "/"; // just to make sure the forward slash is there at the end of the path (note that >1 slashes is fine, system ignores those)
     }
+    // create directory (including parent directories) if they do not exist
+    std::error_code err;
+    if (!CreateDirectoryRecursive(log_files_dir, err))
+    {
+        std::cout << "Error creating the directory '" << log_files_dir <<"'\n";
+        std::cout << "CreateDirectoryRecursive FAILED, err: " << err.message() << std::endl;
+        exit(EXIT_FAILURE);
+    }
+}
+
+bool CreateDirectoryRecursive(std::string const & dirName, std::error_code & err) // source: https://stackoverflow.com/questions/71658440/c17-create-directories-automatically-given-a-file-path/71659205
+// Returns:
+//   true upon success.
+//   false upon failure, and set the std::error_code & err accordingly.
+{
+    err.clear();
+    if (!std::filesystem::create_directories(dirName, err))
+    {
+        if (std::filesystem::exists(dirName))
+        {
+            // The folder already exists:
+            err.clear();
+            return true;    
+        }
+        return false;
+    }
+    return true;
 }
 
 void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
@@ -138,6 +167,7 @@ void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * dat
     std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
     
+    // time related stuff for file names and keys in the yaml file.
     auto now = std::chrono::system_clock::now();
     auto time_since_epoch = now.time_since_epoch();
     auto microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
@@ -146,10 +176,21 @@ void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * dat
     std::string ts = std::ctime(&timestamp);
     std::string ts_wo_newline = ts.substr(0, ts.find('\n'));    
     
+    // find the file for this system_id if it was previously created. otherwise create it and put it in log_files_map to keep track of it
+    std::string file_name;
+    auto found_val = log_files_map.find(system_id);
+    if (found_val != log_files_map.end()) {
+        // key (id) exists. so a file for this system id was previously created. use that
+        file_name = log_files_map[system_id];
+    } 
+    else {
+        std::stringstream strstream_file_name;
+        strstream_file_name << system_id << "_" << microsec_since_epoch << ".yaml";
+        file_name = strstream_file_name.str();
+        log_files_map[system_id] = file_name;
+    }
     std::ofstream datafile;
-    std::stringstream file_name_and_path;
-    file_name_and_path << log_files_dir << system_id << "_" << microsec_since_epoch << ".yaml";
-    datafile.open((file_name_and_path.str()).c_str(), std::ios_base::app); // open in append mode
+    datafile.open((log_files_dir + file_name).c_str(), std::ios_base::app); // open in append mode
     datafile << "# === New Entry ===\n"; // a yaml comment
 
     datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
