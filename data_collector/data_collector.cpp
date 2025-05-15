@@ -1,13 +1,14 @@
 #include "data_collector.h"
 
-std::string data_file_path;
+const std::string default_logs_path = "./logs/";
+std::string log_files_dir;
 int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon
     int spinesd_port;
     int my_port; // the port this data collector receives messages on
     std::string mcast_sock_addr;
 
-    parse_args(ac, av, spinesd_ip_addr, spinesd_port, my_port, data_file_path, mcast_sock_addr);
+    parse_args(ac, av, spinesd_ip_addr, spinesd_port, my_port, log_files_dir, mcast_sock_addr);
 
     struct mcast_connection mcast_conn;
     set_up_mcast_sock(spinesd_ip_addr, spinesd_port, mcast_sock_addr, mcast_conn);
@@ -65,8 +66,8 @@ int main(int ac, char **av) {
                 std::string sender_ipaddr;
                 int sender_port;
                 sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
-                // write_data(data_file_path, (signed_message *)buff, sender_ipaddr, sender_port);
-                write_data(data_file_path, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
+                // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
+                write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
                 std::cout << "data_collector: Data has been written to disk\n";
             }
         }
@@ -94,12 +95,12 @@ int main(int ac, char **av) {
 void usage_check(int ac, char **av) {
     if (ac != 5) {
         printf("Invalid args\n");
-        printf("Usage: %s spinesAddr:spinesPort dataCollectorPort mcastAddr:mcastPort dataLogFilePath\nTo ignore mcastAddr:mcastPort arg, just enter ':' in its place\n", av[0]);
+        printf("Usage: %s spinesAddr:spinesPort dataCollectorPort mcastAddr:mcastPort logs_directory\nTo ignore mcastAddr:mcastPort arg, just enter ':' in its place. To use the default logs_directory (./logs/), enter '%' in its place\n", av[0]);
         exit(EXIT_FAILURE);
     }
 }
 
-void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &data_file_path, std::string &mcast_sock_addr) {
+void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_port, int &my_port, std::string &log_files_dir, std::string &mcast_sock_addr) {
     usage_check(ac, av);
 
     int colon_pos;
@@ -119,31 +120,40 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     mcast_sock_addr = av[3];
 
     // data file:
-    data_file_path = av[4];
+    log_files_dir = av[4];
+    if (log_files_dir == "%") {
+        // use the default path
+        log_files_dir = default_logs_path;
+    }
+    else {
+        log_files_dir = log_files_dir + "/"; // just to make sure the forward slash is there at the end of the path (note that >1 slashes is fine, system ignores those)
+    }
 }
 
-void write_data_yaml(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
-    // note that data_file_path can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
+void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+    // note that log_files_dir can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
     
     const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation for yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
 
     std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
-    std::ofstream datafile;
-    
-    datafile.open((system_id + data_file_path).c_str(), std::ios_base::app); // open in append mode
-    datafile << "# === New Entry ===\n"; // a yaml comment
     
     auto now = std::chrono::system_clock::now();
     auto time_since_epoch = now.time_since_epoch();
     auto microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
-
-    datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
-
     std::time_t timestamp;
     timestamp = std::chrono::system_clock::to_time_t(now);
     std::string ts = std::ctime(&timestamp);
-    std::string ts_wo_newline = ts.substr(0, ts.find('\n'));
+    std::string ts_wo_newline = ts.substr(0, ts.find('\n'));    
+    
+    std::ofstream datafile;
+    std::stringstream file_name_and_path;
+    file_name_and_path << log_files_dir << system_id << "_" << microsec_since_epoch << ".yaml";
+    datafile.open((file_name_and_path.str()).c_str(), std::ios_base::app); // open in append mode
+    datafile << "# === New Entry ===\n"; // a yaml comment
+
+    datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
+
     datafile << ind << "Timestamp: '"<< ts_wo_newline << "'\n"; // human-readable timestamp
     
     datafile << ind << "from:\n";
@@ -313,8 +323,8 @@ void write_data_yaml(std::string data_file_path, struct DataCollectorPacket * da
     datafile.close();
 }
 
-void write_data(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
-    write_data_yaml(data_file_path, data_packet, sender_ipaddr, sender_port);
+void write_data(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+    write_data_yaml(log_files_dir, data_packet, sender_ipaddr, sender_port);
 }
 
 void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port){
@@ -379,7 +389,7 @@ void handle_mcast_message(int sock, int code, void *data) {
             message = (Switcher_Message*) buff;
             std::cout << "a message was received from the switcher. \n";
             // TODO: confirm, sometimes seg faults on non-empty messages (maybe line breaks ?)
-            write_data(data_file_path, message, mcast_conn.ipaddr, mcast_conn.port);
+            write_data(log_files_dir, message, mcast_conn.ipaddr, mcast_conn.port);
         }
     }
 }
@@ -396,15 +406,15 @@ void* listen_on_mcast_sock(void* fn_args) {
     return NULL;
 }
 
-void write_data(std::string data_file_path_og, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
+void write_data(std::string log_files_dir_og, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
 
     std::time_t timestamp;
     std::ofstream datafile;
     
-    std::string data_file_path = data_file_path_og + ".switcher.txt";
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    std::string log_files_dir = log_files_dir_og + ".switcher.txt";
+    datafile.open(log_files_dir.c_str(), std::ios_base::app); // open in append mode
     timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     datafile << "=== New Entry ===\n";
     datafile << "Time: " << std::ctime(&timestamp); 

@@ -9,6 +9,7 @@
 #include <sys/select.h> // select statement
 #include <arpa/inet.h>
 #include <sys/un.h>
+#include <sstream>
 
 #include "data_collector_packets.h"
 #include "../switcher/switcher_packets.h"
