@@ -92,6 +92,7 @@ class DataCollectorManager {
     public:
         DataCollectorManager(SocketAddress data_collector_sockaddr, SocketAddress spined_sockaddr);
         void send_to_dc(signed_message *msg, int nbytes, int stream_id);
+        void send_to_dc(signed_message *msg, int nbytes, int stream_id, std::string sys_id);
 };
 
 class IOProcManager {

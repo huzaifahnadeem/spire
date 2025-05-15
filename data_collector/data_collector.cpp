@@ -122,8 +122,8 @@ void parse_args(int ac, char **av, std::string &spinesd_ip_addr, int &spinesd_po
     data_file_path = av[4];
 }
 
-// void write_data(std::string data_file_path, signed_message *data, std::string sender_ipaddr, int sender_port) {
-void write_data(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+// this is the old function before moving to csv. TODO: remove
+void write_data_txt(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
     // initially, just keeping it simple so our 'database' is just a file
     // later on we can have something better like a proper database or whatever is needed.
     signed_message *data = &data_packet->system_message;
@@ -297,6 +297,204 @@ void write_data(std::string data_file_path, struct DataCollectorPacket * data_pa
 
     datafile << "=== End Entry ===\n\n";
     datafile.close();
+}
+
+void write_data_yaml(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+    // note that data_file_path can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
+    
+    const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation per yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
+
+    signed_message *data = &data_packet->system_message;
+    std::ofstream datafile;
+    
+    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    datafile << "# === New Entry ===\n"; // a yaml comment
+    
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    auto microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
+
+    datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
+
+    std::time_t timestamp;
+    timestamp = std::chrono::system_clock::to_time_t(now);
+    std::string ts = std::ctime(&timestamp);
+    std::string ts_wo_newline = ts.substr(0, ts.find('\n'));
+    datafile << ind << "Timestamp: '"<< ts_wo_newline << "'\n"; // human-readable timestamp
+    
+    datafile << ind << "from:\n";
+    datafile << ind << ind << "IP_address: " << sender_ipaddr << "\n";
+    datafile << ind << ind << "port: " << sender_port << "\n";
+
+    std::string data_stream_str;
+    switch (data_packet->data_stream) {
+        case RTU_PROXY_MAIN_MSG:
+            data_stream_str = "RTU_PROXY_MAIN_MSG";
+            break;
+        case RTU_PROXY_SHADOW_MSG:
+            data_stream_str = "RTU_PROXY_SHADOW_MSG";
+            break;
+        case RTU_PROXY_RTU_DATA:
+            data_stream_str = "RTU_PROXY_RTU_DATA";
+            break;
+        case HMI_PROXY_MAIN_MSG:
+            data_stream_str = "HMI_PROXY_MAIN_MSG";
+            break;
+        case HMI_PROXY_SHADOW_MSG:
+            data_stream_str = "HMI_PROXY_SHADOW_MSG";
+            break;
+        case HMI_PROXY_HMI_CMD:
+            data_stream_str = "HMI_PROXY_HMI_CMD";
+            break;
+        default:
+            "unknown_data_stream";
+    }
+    datafile << ind << "data_stream: " << data_stream_str << "\n";
+
+    std::string msg_type_str;
+    switch (data->type) {
+    case HMI_COMMAND:
+        msg_type_str = "HMI_COMMAND";
+        break;
+    case HMI_UPDATE:
+        msg_type_str = "HMI_UPDATE";
+        break;
+    case PRIME_OOB_CONFIG_MSG:
+        msg_type_str = "PRIME_OOB_CONFIG_MSG";
+        break;
+    case RTU_FEEDBACK:
+        msg_type_str = "RTU_FEEDBACK";
+        break;
+    case RTU_DATA:
+        msg_type_str = "RTU_DATA";
+        break;
+    default:
+        "unknown_type";
+    }
+
+    datafile << ind << "data: \n";
+    datafile << ind << ind << "sig: '<";
+    for (int i = 0; i < SIGNATURE_SIZE; i++) {
+        datafile << (int)data->sig[i] << "";
+    }
+    datafile << ">'\n";
+
+    datafile << ind << ind << "mt_num: "                      << data->mt_num << "\n";
+    datafile << ind << ind << "mt_index: "                    << data->mt_index << "\n";
+    datafile << ind << ind << "site_id: "                     << data->site_id << "\n";
+    datafile << ind << ind << "machine_id: "                  << data->machine_id << "\n";
+    datafile << ind << ind << "len: "                         << data->len << "\n";
+    datafile << ind << ind << "type_(enum_val): "             << data->type << "\n";
+    datafile << ind << ind << "type_(enum_str): "             << msg_type_str << "\n";
+    datafile << ind << ind << "incarnation: "                 << data->incarnation << "\n";
+    datafile << ind << ind << "monotonic_counter: "           << data->monotonic_counter << "\n";
+    datafile << ind << ind << "global_configuration_number: " << data->global_configuration_number << "\n";
+
+    datafile << ind << ind << "message_content:\n";
+
+    if (data->type == HMI_COMMAND) { // This type is SENT BY the HMI
+        hmi_command_msg * msg_content = NULL;
+        msg_content = (hmi_command_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << ind << ind << ind << "seq:\n";
+        datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
+        datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
+        datafile << ind << ind << ind << "hmi_id: "             << msg_content->hmi_id << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
+        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n";
+        datafile << ind << ind << ind << "ttip_pos: "           << msg_content->ttip_pos << "\n";
+    }
+    else if (data->type == HMI_UPDATE) { // This type is RECEIVED BY the HMI-side Proxy
+        hmi_update_msg * msg_content = NULL;
+        msg_content = (hmi_update_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << ind << ind << ind << "seq:\n";
+        datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
+        datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
+        datafile << ind << ind << ind << "sec: "                << msg_content->sec << "\n";
+        datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
+        datafile << ind << ind << ind << "len: "                << msg_content->len << "\n";
+    }
+    else if (data->type == PRIME_OOB_CONFIG_MSG) { // This type is RECEIVED BY the HMI-side Proxy & the RTU/PLC-side Proxy (from ITRC)
+        config_message * msg_content = NULL;
+        msg_content = (config_message *)(data + 1);
+        datafile << ind << ind << ind << "N: "                    << msg_content->N << "\n";
+        datafile << ind << ind << ind << "f: "                    << msg_content->f << "\n";
+        datafile << ind << ind << ind << "k: "                    << msg_content->k << "\n";
+        datafile << ind << ind << ind << "num_sites: "            << msg_content->num_sites << "\n";
+        datafile << ind << ind << ind << "num_cc: "               << msg_content->num_cc << "\n";
+        datafile << ind << ind << ind << "num_dc: "               << msg_content->num_dc << "\n";
+        datafile << ind << ind << ind << "num_cc_replicas: "      << msg_content->num_cc_replicas << "\n";
+        datafile << ind << ind << ind << "num_dc_replicas: "      << msg_content->num_dc_replicas << "\n";
+        datafile << ind << ind << ind << "tpm_based_id: "         << msg_content->tpm_based_id << "\n";
+        datafile << ind << ind << ind << "replica_flag: "         << msg_content->replica_flag << "\n";
+        datafile << ind << ind << ind << "sm_addresses: "         << msg_content->sm_addresses << "\n";
+        datafile << ind << ind << ind << "spines_ext_addresses: " << msg_content->spines_ext_addresses << "\n";
+        datafile << ind << ind << ind << "spines_ext_port: "      << msg_content->spines_ext_port << "\n";
+        datafile << ind << ind << ind << "spines_int_addresses: " << msg_content->spines_int_addresses << "\n";
+        datafile << ind << ind << ind << "spines_int_port: "      << msg_content->spines_int_port << "\n";
+        datafile << ind << ind << ind << "prime_addresses: "      << msg_content->prime_addresses << "\n";
+        datafile << ind << ind << ind << "initial_state: "        << msg_content->initial_state << "\n";
+        datafile << ind << ind << ind << "initial_state_digest: " << msg_content->initial_state_digest << "\n";
+        datafile << ind << ind << ind << "frag_num: "             << msg_content->frag_num << "\n";
+    }
+    else if (data->type == RTU_FEEDBACK) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from ITRC)
+        rtu_feedback_msg * msg_content = NULL;
+        msg_content = (rtu_feedback_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << ind << ind << ind << "seq:\n";
+        datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
+        datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
+        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n";
+        datafile << ind << ind << ind << "sub: "                << msg_content->sub << "\n";
+        datafile << ind << ind << ind << "rtu: "                << msg_content->rtu << "\n";
+        datafile << ind << ind << ind << "offset: "             << msg_content->offset << "\n";
+        datafile << ind << ind << ind << "val: "                << msg_content->val << "\n";
+    }
+    else if (data->type == RTU_DATA) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from RTUs/PLCs)
+        rtu_data_msg * msg_content = NULL;
+        msg_content = (rtu_data_msg *)(data + 1);
+        seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
+        datafile << ind << ind << ind << "seq:\n";
+        datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
+        datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
+        datafile << ind << ind << ind << "rtu_id: "             << msg_content->rtu_id << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
+        datafile << ind << ind << ind << "sec: "                << msg_content->sec << "\n";
+        datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
+        datafile << ind << ind << ind << "data_(aka_payload):\n";
+        pnnl_fields * payload = (pnnl_fields *)msg_content->data; // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
+        datafile << ind << ind << ind << ind << "padd1: "<< payload->padd1 << "\n";
+        datafile << ind << ind << ind << ind << "point: [";
+        for (int i = 0; i < NUM_POINT; i++) {
+            datafile << payload->point[i] << ((i < NUM_POINT-1) ? ", " : ""); // adding a comma to make it a proper list. dont print comma for the last element
+        }
+        datafile << "]\n";
+        datafile << ind << ind << ind << ind << "breaker_read: [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << +payload->breaker_read[i] << ((i < NUM_BREAKER-1) ? ", " : ""); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
+        }
+        datafile << "]\n";
+        datafile << ind << ind << ind << ind << "breaker_write: [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << +payload->breaker_write[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+        }
+        datafile << "]\n";
+    }
+    // else case: if unknown data type then nothing to print.
+    
+    datafile << "# === End Entry ===\n\n"; // a yaml comment
+    datafile.close();
+}
+
+void write_data(std::string data_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+    // old: TODO: remove
+    // write_data_txt(data_file_path, data_packet, sender_ipaddr, sender_port);
+    
+    // new:
+    write_data_yaml(data_file_path, data_packet, sender_ipaddr, sender_port);
 }
 
 void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port){

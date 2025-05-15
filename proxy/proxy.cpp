@@ -404,7 +404,12 @@ void DataCollectorManager::setup_spines_socket() {
         }
     }
 }
-void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id) {
+
+void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id)  {
+    this->send_to_dc(msg, nbytes, data_stream_id, "");
+}
+
+void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id, std::string sys_id) {
     if (this->no_data_collector)
         return;
 
@@ -415,7 +420,8 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
     data_packet.data_stream = data_stream_id;
     data_packet.system_message = *msg;
     data_packet.nbytes_mess = nbytes;
-    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int);
+    data_packet.sys_id = sys_id;
+    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int) + data_packet.sys_id.size();
 
     ret = spines_sendto(this->spinesd_socket, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&this->dc_sockaddr_in, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
