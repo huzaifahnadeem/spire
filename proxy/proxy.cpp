@@ -675,7 +675,7 @@ void* RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
 }
 int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
     int in_list, rtu_dst, channel;
-    char buffer[MAX_LEN];
+    // char buffer[MAX_LEN];
     int ret = -1;
 
     rtu_dst = ((rtu_feedback_msg *)(mess + 1))->rtu;
@@ -684,7 +684,7 @@ int RTUsPLCsMessageBrokerManager::send(signed_message* mess, int nbytes) {
     if(in_list) {
         int this_socket = this->sockets_to_from_rtus_plcs_via_ipc[channel];
         std::cout << "PROXY: Delivering msg to RTU channel " << channel << "at " << this_socket << "at path: " << this->protocol_data[channel].ipc_remote << "\n";
-        ret = IPC_Send(this_socket, buffer, nbytes, 
+        ret = IPC_Send(this_socket, (void *)mess, nbytes, 
             this->protocol_data[channel].ipc_remote);
         if(ret != nbytes) {
             std::cout << "PROXY: error delivering to RTU\n";

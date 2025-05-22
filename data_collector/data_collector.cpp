@@ -14,8 +14,6 @@ int main(int ac, char **av) {
 
     struct mcast_connection mcast_conn;
     set_up_mcast_sock(spinesd_ip_addr, spinesd_port, mcast_sock_addr, mcast_conn);
-    pthread_t mcast_handler_thread;
-    pthread_create(&mcast_handler_thread, NULL, &listen_on_mcast_sock, (void *) &mcast_conn);
 
     // set up spines sock for proxy messages:
     int proto, spines_sock, num, ret;
@@ -24,6 +22,9 @@ int main(int ac, char **av) {
     char buff[MAX_LEN];
 
     FD_ZERO(&mask);
+    if (mcast_conn.sock != -1) // implies that there is not switcher in the system, we ensure that we connect to it otherwise
+        FD_SET(mcast_conn.sock, &mask);
+
     proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
     /* Setup the spines timeout frequency - if disconnected, will try to reconnect
      *  this often */
@@ -31,23 +32,20 @@ int main(int ac, char **av) {
     spines_timeout.tv_usec = SPINES_CONNECT_USEC;
 
     spines_sock = -1; // -1 is not a real socket so init to that
-    spines_sock = Spines_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto, my_port);
-    if (spines_sock < 0) {
+    while (spines_sock < 0) {
+        spines_sock = Spines_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto, my_port);
         std::cout << "data_collector: Unable to connect to Spines, trying again soon\n";
-        t = &spines_timeout; 
     }
-    else {
-        std::cout << "data_collector: Connected to Spines\n";
-        FD_SET(spines_sock, &mask);
-        t = NULL;
-    }
+    t = &spines_timeout; 
+    std::cout << "data_collector: Connected to Spines\n";
+    FD_SET(spines_sock, &mask);
 
     // handle proxy messages:
     while (1) {
         tmask = mask;
         num = select(FD_SETSIZE, &tmask, NULL, NULL, t);
         if (num > 0) {
-            /* Message from Spines */
+            // message from a proxy
             if (spines_sock >= 0 && FD_ISSET(spines_sock, &tmask)) {
                 // spines_recv does not give a way to find out the sender's address
                 // ret = spines_recv(spines_sock, buff, MAX_LEN, 0);
@@ -56,7 +54,7 @@ int main(int ac, char **av) {
                 socklen_t sender_addr_structlen = sizeof(sender_addr); 
                 ret = spines_recvfrom(spines_sock, buff, MAX_LEN, 0, (struct sockaddr *) &sender_addr, &sender_addr_structlen);
                 if (ret <= 0) {
-                    std::cout << "data_collector: Error in spines_recvfrom with spines_sock>0 and : ret = " << ret << "dropping!\n";
+                    std::cout << "data_collector: Error in spines_recvfrom with spines_sock>0 and : ret = " << ret << " .dropping!\n";
                     spines_close(spines_sock);
                     FD_CLR(spines_sock, &mask);
                     spines_sock = -1;
@@ -71,6 +69,10 @@ int main(int ac, char **av) {
                 // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
                 write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
                 std::cout << "data_collector: Data has been written to disk\n";
+            }
+            // mcast message from the switcher
+            else if (mcast_conn.sock >= 0 && FD_ISSET(mcast_conn.sock, &tmask)) {
+                handle_mcast_message(mcast_conn);
             }
         }
         else {
@@ -90,7 +92,6 @@ int main(int ac, char **av) {
         }
     }
 
-    pthread_join(mcast_handler_thread, NULL);
     return EXIT_SUCCESS;
 }
 
@@ -159,45 +160,21 @@ bool CreateDirectoryRecursive(std::string const & dirName, std::error_code & err
     return true;
 }
 
-void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port, const std::string ind, std::chrono::system_clock::rep microsec_since_epoch, std::string timestamp) {
     // note that log_files_dir can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
-    
-    const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation for yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
-
     std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
-    
-    // time related stuff for file names and keys in the yaml file.
-    auto now = std::chrono::system_clock::now();
-    auto time_since_epoch = now.time_since_epoch();
-    auto microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
-    std::time_t timestamp;
-    timestamp = std::chrono::system_clock::to_time_t(now);
-    std::string ts = std::ctime(&timestamp);
-    std::string ts_wo_newline = ts.substr(0, ts.find('\n'));    
-    
-    // find the file for this system_id if it was previously created. otherwise create it and put it in log_files_map to keep track of it
-    std::string file_name;
-    auto found_val = log_files_map.find(system_id);
-    if (found_val != log_files_map.end()) {
-        // key (id) exists. so a file for this system id was previously created. use that
-        file_name = log_files_map[system_id];
-    } 
-    else {
-        std::stringstream strstream_file_name;
-        strstream_file_name << system_id << "_" << microsec_since_epoch << ".yaml";
-        file_name = strstream_file_name.str();
-        log_files_map[system_id] = file_name;
-    }
+  
     std::ofstream datafile;
-    datafile.open((log_files_dir + file_name).c_str(), std::ios_base::app); // open in append mode
+    datafile.open(log_file_path.c_str(), std::ios_base::app); // open in append mode
     datafile << "# === New Entry ===\n"; // a yaml comment
 
     datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
 
-    datafile << ind << "Timestamp: '"<< ts_wo_newline << "'\n"; // human-readable timestamp
+    datafile << ind << "Timestamp: '"<< timestamp << "'\n"; // human-readable timestamp
     
     datafile << ind << "from:\n";
+    datafile << ind << ind << "system_ID: " << system_id << "\n";
     datafile << ind << ind << "IP_address: " << sender_ipaddr << "\n";
     datafile << ind << ind << "port: " << sender_port << "\n";
 
@@ -364,8 +341,89 @@ void write_data_yaml(std::string log_files_dir, struct DataCollectorPacket * dat
     datafile.close();
 }
 
+void write_switcher_data_yaml(std::string log_file_path, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port, const std::string ind, std::chrono::system_clock::rep microsec_since_epoch, std::string timestamp) {
+    std::ofstream datafile;
+    datafile.open(log_file_path.c_str(), std::ios_base::app); // open in append mode
+    
+    datafile << "# === New Entry ===\n"; // a yaml comment
+    datafile << microsec_since_epoch << ":\n"; // each new entry is a dict with timestamp (when the data collector writes this entry) as the root key. timestamp is microseconds since epoch (if we use seconds then the keys are occasionally not unique. with microseconds they are oftern 2-3 microsec apart so just to be safe, this microsec should definitely give us unique keys. if not we can add a usleep() at the end of this function to force some time between entries)
+    datafile << ind << "Timestamp: '"<< timestamp << "'\n"; // human-readable timestamp
+    
+    datafile << ind << "from:\n";
+    datafile << ind << ind << "IP_address: " << sender_ipaddr << "\n";
+    datafile << ind << ind << "port: " << sender_port << "\n";
+
+    datafile << ind << "data_stream: " << "SWITCHER_MSG" << "\n";
+
+    datafile << ind << "data: \n";
+    
+    datafile << ind << ind << "new_active_system_id: " << switcher_message->new_active_system_id << "\n";
+    datafile << ind << ind << "add_io_proc_path: "     << switcher_message->add_io_proc_path << "\n";
+    datafile << ind << ind << "add_io_proc_id: "       << switcher_message->add_io_proc_id << "\n";
+    datafile << ind << ind << "remove_io_proc_id: "    << switcher_message->remove_io_proc_id << "\n";
+
+    datafile << "# === End Entry ===\n\n"; // a yaml comment
+    datafile.close();
+}
+
+void gen_timestamps(std::chrono::system_clock::rep &microsec_since_epoch, std::string &ts_wo_newline) {
+    // time related stuff for file names and keys in the yaml file.
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
+    std::time_t timestamp;
+    timestamp = std::chrono::system_clock::to_time_t(now);
+    std::string ts = std::ctime(&timestamp);
+    ts_wo_newline = ts.substr(0, ts.find('\n'));    
+}
+
+void get_log_filename(std::string &file_name, const std::string system_id, const std::chrono::system_clock::rep microsec_since_epoch) {
+    // find the file for this system_id if it was previously created. otherwise create it and put it in log_files_map to keep track of it
+    // switcher follows the same file name conventions with system_id being "switcher"
+    auto found_val = log_files_map.find(system_id);
+    if (found_val != log_files_map.end()) {
+        // key (id) exists. so a file for this system id was previously created. use that
+        file_name = log_files_map[system_id];
+    } 
+    else {
+        std::stringstream strstream_file_name;
+        strstream_file_name << system_id << "." << microsec_since_epoch << ".yaml";
+        file_name = strstream_file_name.str();
+        log_files_map[system_id] = file_name;
+    }
+}
+
+std::string get_yaml_indentation() {
+    const std::string ind = "  "; // Indentation for the yaml file structure. using 2 spaces which i believe is the recommeded indentation for yaml (however, any number should be fine as long as we are consistent) (note that yaml hates tabs so use this everywhere)
+    return ind;
+}
+
+// for data collector packets (from proxies)
 void write_data(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
-    write_data_yaml(log_files_dir, data_packet, sender_ipaddr, sender_port);
+    std::string ind = get_yaml_indentation();
+    
+    std::chrono::system_clock::rep microsec_since_epoch;
+    std::string timestamp;
+    gen_timestamps(microsec_since_epoch, timestamp);
+    
+    std::string file_name;
+    get_log_filename(file_name, data_packet->sys_id, microsec_since_epoch);
+    
+    write_sys_data_yaml((log_files_dir + file_name), data_packet, sender_ipaddr, sender_port, ind, microsec_since_epoch, timestamp);
+}
+
+// for switcher packets
+void write_data(std::string log_files_dir, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) {
+    std::string ind = get_yaml_indentation();
+    
+    std::chrono::system_clock::rep microsec_since_epoch;
+    std::string timestamp;
+    gen_timestamps(microsec_since_epoch, timestamp);
+    
+    std::string file_name;
+    get_log_filename(file_name, "switcher", microsec_since_epoch);
+    
+    write_switcher_data_yaml((log_files_dir + file_name), switcher_message, sender_ipaddr, sender_port, ind, microsec_since_epoch, timestamp);
 }
 
 void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port){
@@ -408,9 +466,8 @@ void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string
     std::cout << "Mcast setup done\n";
 }
 
-void handle_mcast_message(int sock, int code, void *data) {
-    struct mcast_connection mcast_conn = *((struct mcast_connection*) data);
-    
+void handle_mcast_message(mcast_connection mcast_conn) {
+    int sock = mcast_conn.sock;
     int ret;
     byte buff[switcher_message_max_size];
     struct sockaddr_in from_addr;
@@ -434,138 +491,3 @@ void handle_mcast_message(int sock, int code, void *data) {
         }
     }
 }
-
-void* listen_on_mcast_sock(void* fn_args) {
-    struct mcast_connection mcast_conn = *((struct mcast_connection*) fn_args);
-    if (mcast_conn.sock == -1) // if there was no mcast addr provided
-        return NULL;
-
-    E_init();
-    E_attach_fd(mcast_conn.sock, READ_FD, handle_mcast_message, 0, (void *) &mcast_conn, HIGH_PRIORITY);
-    E_handle_events();
-    
-    return NULL;
-}
-
-void write_data(std::string log_files_dir_og, Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port) { // for switcher messages
-    // initially, just keeping it simple so our 'database' is just a file
-    // later on we can have something better like a proper database or whatever is needed.
-
-    std::time_t timestamp;
-    std::ofstream datafile;
-    
-    std::string log_files_dir = log_files_dir_og + ".switcher.txt";
-    datafile.open(log_files_dir.c_str(), std::ios_base::app); // open in append mode
-    timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    datafile << "=== New Entry ===\n";
-    datafile << "Time: " << std::ctime(&timestamp); 
-    datafile << "From: " << sender_ipaddr << ":" << sender_port <<"\n";    
-
-    std::string data_stream_str;
-    data_stream_str = "SWITCHER_MSG";
-
-    datafile << "Data Stream: " << data_stream_str << "\n";
-    
-    std::string msg_type_str;
-    msg_type_str = " [== SWITCHER_MSG]";
-
-    datafile << "Data: \n";
-    datafile << "\tnew_active_system_id: " << switcher_message->new_active_system_id << "\n";
-    datafile << "\tadd_io_proc_path: " << switcher_message->add_io_proc_path << "\n";
-    datafile << "\tadd_io_proc_id: " << switcher_message->add_io_proc_id << "\n";
-    datafile << "\tremove_io_proc_id: " << switcher_message->remove_io_proc_id << "\n";
-
-    datafile << "=== End Entry ===\n\n";
-    datafile.close();
-}
-
-// // used by my_Spines_Sock (defined right below this fn)
-// int my_Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto) 
-// {
-//     int sk, ret, protocol;
-//     struct sockaddr_in spines_addr;
-//     struct sockaddr_un spines_uaddr;
-//     int16u prio, kpaths;
-//     spines_nettime exp;
-
-//     memset(&spines_addr, 0, sizeof(spines_addr));
-
-//     printf("Initiating Spines connection: %s:%d\n", sp_addr, sp_port);
-//     spines_addr.sin_family = AF_INET;
-//     spines_addr.sin_port   = htons(sp_port);
-//     spines_addr.sin_addr.s_addr = inet_addr(sp_addr);
-
-//     spines_uaddr.sun_family = AF_UNIX;
-//     sprintf(spines_uaddr.sun_path, "%s%d", "/tmp/spines", sp_port);
-
-//     protocol = 8 | (proto << 8);
-
-//     /* printf("Creating IPC spines_socket\n");
-//     sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr); */
-   
-//     if ((int)inet_addr(sp_addr) == My_IP) {
-//         printf("Creating default spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr);
-//     }
-//     else {
-//         printf("Creating inet spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, 
-//                 (struct sockaddr *)&spines_addr);
-//     }
-//     if (sk < 0) {
-//         perror("Spines_Sock: error creating spines socket!");
-//         return sk;
-//     }
-
-//     /* setup kpaths = 1 */
-//     kpaths = 1;
-//     if ((ret = spines_setsockopt(sk, 0, SPINES_DISJOINT_PATHS, (void *)&kpaths, sizeof(int16u))) < 0) {
-//         printf("Spines_Sock: spines_setsockopt failed for disjoint paths = %u\n", kpaths);
-//         return ret;
-//     }
-
-//     /* setup priority level and garbage collection settings for Priority Messaging */
-//     prio = SCADA_PRIORITY;
-//     exp.sec  = 5;
-//     exp.usec = 0;
-
-//     if (proto == SPINES_PRIORITY) {
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_EXPIRATION, (void *)&exp, sizeof(spines_nettime))) < 0) {
-//             printf("Spines_Sock: error setting expiration time to %u sec %u usec\n", exp.sec, exp.usec);
-//             return ret;
-//         }
-
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_PRIORITY, (void *)&prio, sizeof(int16u))) < 0) {
-//             printf("Spines_Sock: error setting priority to %u\n", prio);
-//             return ret;
-//         }
-//     }
-
-//     return sk;
-// }
-
-// // the `Spines_Sock` function from net_wrapper.c uses some spire-specific macro defines (SPINES_INT_PORT & SPINES_EXT_PORT) and i would need to make some changes there or somewhere else to allow having a management network. so i adapt the function here
-// int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port) 
-// {
-//     int sk, ret;
-//     struct sockaddr_in my_addr;
-    
-//     sk = my_Spines_SendOnly_Sock(sp_addr, sp_port, proto);
-//     if (sk < 0) {
-//         perror("Spines_Sock: failure to connect to spines");
-//         return sk;
-//     }
-
-//     memset(&my_addr, 0, sizeof(my_addr));
-//     my_addr.sin_family = AF_INET;
-//     my_addr.sin_addr.s_addr = My_IP;
-//     my_addr.sin_port = htons(my_port);
-
-//     ret = spines_bind(sk, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_in));
-//     if (ret < 0) {
-//         perror("Spines_Sock: bind error!");
-//         return ret;
-//     }
-
-//     return sk;
-// }
