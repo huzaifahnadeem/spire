@@ -815,7 +815,8 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         }
 
         // add a new io proc, if message has that info:
-        if (message->add_io_proc_path != "" && message->add_io_proc_spinesd_addr != "") {
+        // int ans = strcmp(str1, str2, ans); ans = 0 if str1==str.
+        if (strcmp(message->add_io_proc_path, "") != 0 && strcmp(message->add_io_proc_spinesd_addr, "") != 0) {
             // if add_io_proc_id not provided then just use the path as the id
             std::string new_io_proc_id = (message->add_io_proc_id == ""? message->add_io_proc_path: message->add_io_proc_id);
             this_class_object->io_proc_manager->add_io_proc(new_io_proc_id, message->add_io_proc_path, parse_socket_address(message->add_io_proc_spinesd_addr));
@@ -824,14 +825,15 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         }
         
         // update the active system id, if message has that info:
-        if (message->new_active_system_id != "") {
-            this_class_object->io_proc_manager->update_active_system_id(message->new_active_system_id);
+        if (strcmp(message->new_active_system_id, "") != 0) {
+            std::string new_id = message->new_active_system_id;
+            this_class_object->io_proc_manager->update_active_system_id(new_id);
             std::cout << "Switcher Message Handler: Updated active system ID from `" << this_class_object->io_proc_manager->get_active_sys_id() << "` to `" << message->new_active_system_id << "`\n";
             temp_test_switcher_msgs("Switcher Message Handler: Updated active system ID from ...");
         }
 
         // remove an io proc, if message has that info:
-        if (message->remove_io_proc_id != "") {
+        if (strcmp(message->remove_io_proc_id, "") != 0) {
             // this fn ignores the request if removing the currently active io proc:
             this_class_object->io_proc_manager->kill_io_proc(message->remove_io_proc_id);
             std::cout << "Switcher Message Handler: Killed I/O process with id `" << message->remove_io_proc_id << "`\n";

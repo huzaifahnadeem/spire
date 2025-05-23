@@ -74,6 +74,7 @@ void* read_input_pipe(void* fn_arg) {
     UNUSED(fn_arg);
     // for now just read standard input. will come back to add the whole pipe reading thing
     std::string input;
+    char empty[5] = "";
     while (true) {
         // the idea is that empty strings will be ignored
         // so using different combinations of empty and non empty strings
@@ -87,19 +88,28 @@ void* read_input_pipe(void* fn_arg) {
         Switcher_Message message_to_send;
         std::cout << "\nnew_active_system_id: ";
         std::cin >> input;
-        message_to_send.new_active_system_id = (input == "."? "": input); // treat "." as an empty string
+        // message_to_send.new_active_system_id = (input == "."? empty: input.c_str()); // treat "." as an empty string
+        strcpy(message_to_send.new_active_system_id, (input == "."? empty: input.c_str()));
+        
         std::cout << "\nadd_io_proc_path: ";
         std::cin >> input;
-        message_to_send.add_io_proc_path = (input == "."? "": input);
+        // message_to_send.add_io_proc_path = (input == "."? empty: input.c_str());
+        strcpy(message_to_send.add_io_proc_path, (input == "."? empty: input.c_str()));
+        
         std::cout << "\nadd_io_proc_spinesd_addr: ";
         std::cin >> input;
-        message_to_send.add_io_proc_spinesd_addr = (input == "."? "": input);
+        // message_to_send.add_io_proc_spinesd_addr = (input == "."? empty: input.c_str());
+        strcpy(message_to_send.add_io_proc_spinesd_addr, (input == "."? empty: input.c_str()));
+        
         std::cout << "\nadd_io_proc_id: ";
         std::cin >> input;
-        message_to_send.add_io_proc_id = (input == "."? "": input);
+        // message_to_send.add_io_proc_id = (input == "."? empty: input.c_str());
+        strcpy(message_to_send.add_io_proc_id, (input == "."? empty: input.c_str()));
+        
         std::cout << "\nremove_io_proc_id: ";
         std::cin >> input;
-        message_to_send.remove_io_proc_id = (input == "."? "": input);
+        // message_to_send.remove_io_proc_id = (input == "."? empty: input.c_str());
+        strcpy(message_to_send.remove_io_proc_id, (input == "."? empty: input.c_str()));
 
         // pending_messages.push(message_to_send); // having a queue will be useful when we are reading inputs from a file/pipe as it will help avoid thread sync issues.
 
