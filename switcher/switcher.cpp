@@ -74,7 +74,7 @@ void* read_input_pipe(void* fn_arg) {
     UNUSED(fn_arg);
     // for now just read standard input. will come back to add the whole pipe reading thing
     std::string input;
-    char empty[5] = "";
+    char empty[50] = "";
     while (true) {
         // the idea is that empty strings will be ignored
         // so using different combinations of empty and non empty strings
