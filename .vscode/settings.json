@@ -71,5 +71,6 @@
         "variant": "cpp",
         "vector": "cpp",
         "algorithm": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/Users/huzaifahnadeem/spire/libiec61850/examples/iec61850_client_example2"
 }
