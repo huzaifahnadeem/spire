@@ -4,7 +4,6 @@
 *.log
 *.out
 
-
 # Object and library files
 *.o
 *.do
@@ -265,3 +264,4 @@ libiec61850/.install
 #TM Keys
 trip_master_v2/tm_keys
 trip_master/tm_keys
+.DS_Store
