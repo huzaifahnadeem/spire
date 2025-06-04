@@ -1,3 +1,0 @@
-sys1 192.168.0.106:9999 239.255.0.3:9900
-sys1 ./io_process/io_process 192.168.0.105:8120
-sys2 ./io_process/io_process_shadow 192.168.0.105:18120
