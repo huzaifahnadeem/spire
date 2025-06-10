@@ -44,7 +44,8 @@ void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &
 void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string mcast_sock_addr, struct mcast_connection &mcast_conn);
 void write_data(std::string log_files_dir, struct Switcher_Message * switcher_message, std::string sender_ipaddr, int sender_port); // for switcher messages
 bool CreateDirectoryRecursive(std::string const & dirName, std::error_code & err);
-void handle_mcast_message(mcast_connection mcast_conn);
+void handle_proxies_message(int sock, int code, void *data);
+void handle_mcast_message(int sock, int code, void *data);
 
 // // specifically for management network (avoids using SPINES_INT_PORT & SPINES_EXT_PORT)
 // int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port);

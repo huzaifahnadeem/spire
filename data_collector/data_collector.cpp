@@ -18,12 +18,11 @@ int main(int ac, char **av) {
     // set up spines sock for proxy messages:
     int proto, spines_sock, num, ret;
     struct timeval spines_timeout, *t;
-    fd_set mask, tmask;
-    char buff[MAX_LEN];
 
-    FD_ZERO(&mask);
+    E_init(); // initialize libspread events handler
+
     if (mcast_conn.sock != -1) // implies that there is not switcher in the system, we ensure that we connect to it otherwise
-        FD_SET(mcast_conn.sock, &mask);
+        E_attach_fd(mcast_conn.sock, READ_FD, handle_mcast_message, 0, (void *)&mcast_conn, MEDIUM_PRIORITY); 
 
     proto = SPINES_RELIABLE; // need to use SPINES_RELIABLE and not SPINES_PRIORITY. This is because we need to be sure the message is delivered. SPINES_PRIORITY can drop messages. might need to think more though (but thats for later)
     /* Setup the spines timeout frequency - if disconnected, will try to reconnect
@@ -35,62 +34,15 @@ int main(int ac, char **av) {
     while (spines_sock < 0) {
         spines_sock = Spines_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto, my_port);
         std::cout << "data_collector: Unable to connect to Spines, trying again soon\n";
+        sleep(SPINES_CONNECT_SEC);
     }
     t = &spines_timeout; 
     std::cout << "data_collector: Connected to Spines\n";
-    FD_SET(spines_sock, &mask);
 
-    // handle proxy messages:
-    while (1) {
-        tmask = mask;
-        num = select(FD_SETSIZE, &tmask, NULL, NULL, t);
-        if (num > 0) {
-            // message from a proxy
-            if (spines_sock >= 0 && FD_ISSET(spines_sock, &tmask)) {
-                // spines_recv does not give a way to find out the sender's address
-                // ret = spines_recv(spines_sock, buff, MAX_LEN, 0);
-                // so, instead we are using spines_recvfrom:
-                struct sockaddr_in sender_addr;
-                socklen_t sender_addr_structlen = sizeof(sender_addr); 
-                ret = spines_recvfrom(spines_sock, buff, MAX_LEN, 0, (struct sockaddr *) &sender_addr, &sender_addr_structlen);
-                if (ret <= 0) {
-                    std::cout << "data_collector: Error in spines_recvfrom with spines_sock>0 and : ret = " << ret << " .dropping!\n";
-                    spines_close(spines_sock);
-                    FD_CLR(spines_sock, &mask);
-                    spines_sock = -1;
-                    t = &spines_timeout; 
-                    continue;
-                }
-                std::cout << "data_collector: Received some data from spines daemon\n";
+    
+    E_attach_fd(spines_sock, READ_FD, handle_proxies_message, 0, NULL, MEDIUM_PRIORITY);     
 
-                std::string sender_ipaddr;
-                int sender_port;
-                sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
-                // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
-                write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
-                std::cout << "data_collector: Data has been written to disk\n";
-            }
-            // mcast message from the switcher
-            else if (mcast_conn.sock >= 0 && FD_ISSET(mcast_conn.sock, &tmask)) {
-                handle_mcast_message(mcast_conn);
-            }
-        }
-        else {
-            // this happens when we havent connected to spire. so try again: // TODO: does this actually happen?
-            spines_sock = Spines_Sock(spinesd_ip_addr.c_str(), spinesd_port, proto, my_port);
-            if (spines_sock < 0) {
-                std::cout << "data_collector: Unable to connect to Spines, trying again soon\n";
-                spines_timeout.tv_sec  = SPINES_CONNECT_SEC;
-                spines_timeout.tv_usec = SPINES_CONNECT_USEC;
-                t = &spines_timeout; 
-            }
-            else {
-                std::cout << "data_collector: Connected to Spines\n";
-                FD_SET(spines_sock, &mask);
-                t = NULL;
-            }
-        }
-    }
+    E_handle_events(); // signal libspread events handler to start handling all the events for which fds were set by the objects above
 
     return EXIT_SUCCESS;
 }
@@ -466,8 +418,38 @@ void set_up_mcast_sock(std::string spinesd_ipaddr, int spinesd_port, std::string
     std::cout << "Mcast setup done\n";
 }
 
-void handle_mcast_message(mcast_connection mcast_conn) {
-    int sock = mcast_conn.sock;
+
+void handle_proxies_message(int sock, int code, void *data) {
+    // handle proxy messages:
+    UNUSED(code);
+    UNUSED(data);
+    int spines_sock = sock;
+    int ret;
+    char buff[MAX_LEN];
+    // spines_recv does not give a way to find out the sender's address
+    // ret = spines_recv(spines_sock, buff, MAX_LEN, 0);
+    // so, instead we are using spines_recvfrom:
+    struct sockaddr_in sender_addr;
+    socklen_t sender_addr_structlen = sizeof(sender_addr); 
+    ret = spines_recvfrom(spines_sock, buff, MAX_LEN, 0, (struct sockaddr *) &sender_addr, &sender_addr_structlen);
+    if (ret <= 0) {
+        std::cout << "data_collector: Error in spines_recvfrom with spines_sock>0 and : ret = " << ret << " .dropping!\n";
+        spines_close(spines_sock);
+        spines_sock = -1;
+    }
+    std::cout << "data_collector: Received some data from spines daemon\n";
+
+    std::string sender_ipaddr;
+    int sender_port;
+    sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
+    // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
+    write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
+    std::cout << "data_collector: Data has been written to disk\n";
+}
+
+void handle_mcast_message(int sock, int code, void *data) {
+    UNUSED(code);
+    struct mcast_connection* mcast_conn = (mcast_connection*) data;
     int ret;
     byte buff[switcher_message_max_size];
     struct sockaddr_in from_addr;
@@ -486,8 +468,7 @@ void handle_mcast_message(mcast_connection mcast_conn) {
             }
             message = (Switcher_Message*) buff;
             std::cout << "a message was received from the switcher. \n";
-            // TODO: confirm, sometimes seg faults on non-empty messages (maybe line breaks ?)
-            write_data(log_files_dir, message, mcast_conn.ipaddr, mcast_conn.port);
+            write_data(log_files_dir, message, mcast_conn->ipaddr, mcast_conn->port);
         }
     }
 }
