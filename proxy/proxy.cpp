@@ -291,7 +291,7 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
         }
         
         // Forward to the Data Collector: (the dc manager will figure out whether or there is a data collector to send to or not)
-        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG);
+        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? RTU_PROXY_MAIN_MSG: RTU_PROXY_SHADOW_MSG, message_is_from);
     }
     
     else if (this_class_obj->client_type == "hmi") {
@@ -304,7 +304,7 @@ void IOProcManager::io_proc_message_handler(int sock, int code, void *data) {
         }
 
         // Forward to the Data Collector:
-        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG);
+        this_class_obj->data_collector_manager->send_to_dc(mess, nbytes, message_is_from == this_class_obj->active_sys_id? HMI_PROXY_MAIN_MSG: HMI_PROXY_SHADOW_MSG, message_is_from);
     }    
 }
 void IOProcManager::send_msg_to_all_procs(signed_message *msg, int nbytes) {
