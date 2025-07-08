@@ -96,11 +96,11 @@ void read_from_hmi(signed_message *);
 void package_and_send_state(signed_message *);
 void apply_state(signed_message *);
 void print_state();
-int Verify_Config_msg(signed_message *);
+// int Verify_Config_msg(signed_message *);
+
 
 int main(int argc, char **argv)
 {   
-    // Alarm_set_types(PRINT | STATUS | DEBUG);
     
     int nbytes, id, i, ret,debug_ret,debug_ret2;
     char buf[MAX_LEN];
@@ -110,7 +110,7 @@ int main(int argc, char **argv)
     fd_set mask, tmask;
     rtu_data_msg *rtud;
     benchmark_msg *ben;
-    pthread_t m_tid, pi_tid;
+    pthread_t m_tid;
     /*int remove_me;*/
 
     setlinebuf(stdout);
@@ -118,17 +118,21 @@ int main(int argc, char **argv)
 
     Usage(argc, argv);
 
-    printf("INIT -- SM for Conf 1 \n");
+    printf("INIT -- SM with Conf 1\n");
     init();
 
     // NET Setup
     gettimeofday(&now, NULL);
     My_Incarnation = now.tv_sec;
-    Prime_Client_ID = My_ID;
+    Prime_Client_ID = -1; //My_ID;
     if (Is_CC_Replica(My_ID))
         Type = CC_TYPE;
-    else
-        Type = DC_TYPE;
+    else {
+        // Type = DC_TYPE;
+        // there is no DC type for a single server
+        printf("SM: error DC type selected\n");
+        exit(EXIT_FAILURE);
+    }
     My_IP = getIP();
 
     // Setup the signal handler for ITRC_Master
@@ -167,13 +171,14 @@ int main(int argc, char **argv)
     }
 
     // Setup and spawn the main itrc thread
-    pthread_create(&m_tid, NULL, &ITRC_Master, (void *)&itrc_thread);
+    pthread_create(&m_tid, NULL, &ITRC_Master_conf1, (void *)&itrc_thread);
 
     // Create the Prime_Inject thread for all types of replicas (not only
     // control-center replicas). Only control-center replicas introduce client
     // (HMI/Proxy) updates, but all replicas can request a state transfer if
     // the first ordinal received is further ahead than what is expected
-    pthread_create(&pi_tid, NULL, &ITRC_Prime_Inject_conf1, (void *)&itrc_thread);
+    
+    // pthread_create(&pi_tid, NULL, &ITRC_Prime_Inject, (void *)&itrc_thread);
 
     // Setup the FD_SET
     FD_ZERO(&mask);
@@ -216,19 +221,19 @@ int main(int argc, char **argv)
                 IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_remote);
                 free(mess);
             }
-            else if(mess->type==PRIME_OOB_CONFIG_MSG){
-                /*Received OOB reconf message - we forward it to ipc_config. Handled in ITRC_Master*/
-                printf("MS2022: In scada_master: PRIME OOB RECONF MESSAGE\n");
-                struct timeval reconf_t;
-                gettimeofday(&reconf_t,NULL);
-                printf("MS2022: **reconf received = %lu   %lu\n",reconf_t.tv_sec, reconf_t.tv_usec);
-                nbytes = sizeof(signed_message) + mess->len;
-                if(Verify_Config_msg(mess))
-                    debug_ret2=IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_config);
-		    if(debug_ret2!=nbytes){
-			printf("ITRC Main error sending to ipc_config\n");
-			}
-            }
+            // else if(mess->type==PRIME_OOB_CONFIG_MSG){
+            //     /*Received OOB reconf message - we forward it to ipc_config. Handled in ITRC_Master*/
+            //     printf("MS2022: In scada_master: PRIME OOB RECONF MESSAGE\n");
+            //     struct timeval reconf_t;
+            //     gettimeofday(&reconf_t,NULL);
+            //     printf("MS2022: **reconf received = %lu   %lu\n",reconf_t.tv_sec, reconf_t.tv_usec);
+            //     nbytes = sizeof(signed_message) + mess->len;
+            //     if(Verify_Config_msg(mess))
+            //         debug_ret2=IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_config);
+		    // if(debug_ret2!=nbytes){
+			// printf("ITRC Main error sending to ipc_config\n");
+			// }
+            // }
             else if (mess->type == HMI_COMMAND) {
                 read_from_hmi(mess);
             }
@@ -243,25 +248,25 @@ int main(int argc, char **argv)
             else if (mess->type == STATE_REQUEST) {
                 package_and_send_state(mess);
             }
-            else if (mess->type == STATE_XFER) {
-                apply_state(mess);
-            }
-            else if (mess->type == SYSTEM_RESET) {
-                printf("Resetting State @ SM!!\n");
-                for(i = 0; i < sw_arr_len; i++)
-                    sw_arr[i].status = 1;
-                for(i = 0; i < tx_arr_len; i++)
-                    tx_arr[i].status = 1;
-                for(i = 0; i < sub_arr_len; i++)
-                    sub_arr[i].status = 1;
-                for(i = 0; i < pl_arr_len; i++)
-                    pl_arr[i].status = 1;
-                for(i = 0; i < stat_len; i++)
-                    stat[i] = 1;
+            // else if (mess->type == STATE_XFER) {
+            //     apply_state(mess);
+            // }
+            // else if (mess->type == SYSTEM_RESET) {
+            //     printf("Resetting State @ SM!!\n");
+            //     for(i = 0; i < sw_arr_len; i++)
+            //         sw_arr[i].status = 1;
+            //     for(i = 0; i < tx_arr_len; i++)
+            //         tx_arr[i].status = 1;
+            //     for(i = 0; i < sub_arr_len; i++)
+            //         sub_arr[i].status = 1;
+            //     for(i = 0; i < pl_arr_len; i++)
+            //         pl_arr[i].status = 1;
+            //     for(i = 0; i < stat_len; i++)
+            //         stat[i] = 1;
 
-                /* Initialize PNNL Scenario */
-                memset(&pnnl_data, 0, sizeof(pnnl_fields));
-            }
+            //     /* Initialize PNNL Scenario */
+            //     memset(&pnnl_data, 0, sizeof(pnnl_fields));
+            // }
             else {
                 printf("SM_MAIN: invalid message type %d\n", mess->type);
             }
@@ -273,22 +278,22 @@ int main(int argc, char **argv)
 
 
 
-int Verify_Config_msg(signed_message *mess)
-{
-    config_message *c_mess;
-    if(!OPENSSL_RSA_Verify((unsigned char*)mess+SIGNATURE_SIZE,
-                sizeof(signed_message)+mess->len-SIGNATURE_SIZE,
-                (unsigned char*)mess,mess->machine_id,RSA_CONFIG_MNGR)){
-        printf("Config Agent: Config message signature verification failed\n");
+// int Verify_Config_msg(signed_message *mess)
+// {
+//     config_message *c_mess;
+//     if(!OPENSSL_RSA_Verify((unsigned char*)mess+SIGNATURE_SIZE,
+//                 sizeof(signed_message)+mess->len-SIGNATURE_SIZE,
+//                 (unsigned char*)mess,mess->machine_id,RSA_CONFIG_MNGR)){
+//         printf("Config Agent: Config message signature verification failed\n");
 
-        return 0;
-    }
-    c_mess=(config_message *)(mess+1);
-    if (mess->global_configuration_number<=My_Global_Configuration_Number)
-        return 0;
-    return 1;
+//         return 0;
+//     }
+//     c_mess=(config_message *)(mess+1);
+//     if (mess->global_configuration_number<=My_Global_Configuration_Number)
+//         return 0;
+//     return 1;
 
-}
+// }
 
 // Usage
 void Usage(int argc, char **argv)

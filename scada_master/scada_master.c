@@ -184,7 +184,7 @@ int main(int argc, char **argv)
         tmask = mask;
         debug_ret=select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
 //	printf("debug_ret=%d\n",debug_ret);
-        if (FD_ISSET(ipc_sock, &tmask)) {
+        if (FD_ISSET(ipc_sock, &tmask)) { // message from ITRC_Master to scada_master
             ret = IPC_Recv(ipc_sock, buf, MAX_LEN);
             mess = (signed_message *)buf;
 
@@ -213,7 +213,7 @@ int main(int argc, char **argv)
                     }*/
                 }
                 nbytes = sizeof(signed_message) + mess->len;
-                IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_remote);
+                IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_remote); // send to ITRC_Master
                 free(mess);
             }
             else if(mess->type==PRIME_OOB_CONFIG_MSG){
@@ -238,7 +238,7 @@ int main(int argc, char **argv)
                 ben->pong_sec = 0; //now.tv_sec;
                 ben->pong_usec = 0; //now.tv_usec;
                 //printf("MS2022: In scada_master: RECEIVED BENCHMARK MESSAGE\n");
-                IPC_Send(ipc_sock, (void *)mess, ret, itrc_main.ipc_remote);
+                IPC_Send(ipc_sock, (void *)mess, ret, itrc_main.ipc_remote); // send to ITRC_Master
             }
             else if (mess->type == STATE_REQUEST) {
                 package_and_send_state(mess);
@@ -719,7 +719,7 @@ void read_from_hmi(signed_message *mess)
     /* With the message constructed (from either scenario), send it on */
     if(dad_mess != NULL){
         nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
-        IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote);
+        IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote); // send to ITRC_Master
         free(dad_mess);
     }
 }
@@ -786,7 +786,7 @@ void package_and_send_state(signed_message *mess)
     assert(nBytes <= MAX_LEN);
 
     // Send this message back to the ITRC
-    IPC_Send(ipc_sock, (void* )sx, nBytes, itrc_main.ipc_remote);
+    IPC_Send(ipc_sock, (void* )sx, nBytes, itrc_main.ipc_remote); // send to ITRC_Master
     free(sx);
     //print_state();
 }
