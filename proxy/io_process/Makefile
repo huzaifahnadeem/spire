@@ -44,6 +44,17 @@ OBJECTS_LIST       = \
 		$(SPIRE_DIR)/config/cJSON.o \
 		$(SPIRE_DIR)/config/config_helpers.o \
 
+DEMO_CONF1_OBJECTS_LIST       = \
+		demo_io_proc_conf1.o \
+        $(SPIRE_DIR)/common/scada_packets.o \
+        $(SPIRE_DIR)/common/net_wrapper.o \
+        $(SPIRE_DIR)/common/openssl_rsa.o \
+        $(SPIRE_DIR)/common/tc_wrapper.o \
+        $(SPIRE_DIR)/common/itrc.o \
+		$(SPIRE_DIR)/common/key_value.o \
+		$(SPIRE_DIR)/config/cJSON.o \
+		$(SPIRE_DIR)/config/config_helpers.o \
+
 HEADERS_LIST       = \
 		$(SPIRE_DIR)/common/net_wrapper.h \
 		$(SPIRE_DIR)/common/openssl_rsa.h \
@@ -79,3 +90,10 @@ clean:
 
 $(BINARY_NAME).o: io_process.cpp $(HEADERS_LIST)
 	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDE_PATH) -o $(BINARY_NAME).o io_process.cpp
+
+
+demo_io_proc_conf1.o: demo_io_proc_conf1.cpp $(HEADERS_LIST)
+	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDE_PATH) -o demo_io_proc_conf1.o demo_io_proc_conf1.cpp
+
+demo_io_proc_conf1: $(DEMO_CONF1_OBJECTS_LIST)
+	$(LINK) $(LDFLAGS) $(LFLAGS) -o demo_io_proc_conf1 $(DEMO_CONF1_OBJECTS_LIST) $(LIBS_LIST)
