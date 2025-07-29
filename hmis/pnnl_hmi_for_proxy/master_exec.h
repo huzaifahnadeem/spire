@@ -59,6 +59,10 @@ extern "C" {
     #include "spu_events.h"
 }
 
+#ifndef COMPROMISE_DEMO
+#define COMPROMISE_DEMO 0
+#endif
+
 #define MAX_LINES_IN_SEGMENT 2
 using namespace std;
 
@@ -128,6 +132,10 @@ DATA;
 
 extern int ipc_sock_to_proxy;
 extern int ipc_sock_from_proxy;
+
+#if COMPROMISE_DEMO
+extern bool demo_plc_is_locked;
+#endif
 
 void Init_Master(DATA *);
 void Read_From_Master(int s, int dummy1, void *dummy2);

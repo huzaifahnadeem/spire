@@ -52,6 +52,10 @@
 //  email            : lehrig@t-online.de
 //***************************************************************************
 
+#if COMPROMISE_DEMO
+#include <fstream>
+#endif
+
 //Include headers for socket management
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,6 +155,265 @@ int pvMain(PARAM *p)
     }
 }
 
+#if COMPROMISE_DEMO
+
+int breaker_cmd(int id, bool breaker_on_cmd) {
+    signed_message *mess;
+    seq_pair ps;
+    int nbytes;
+    data_model *d;
+    d = &the_model;
+
+    if (id == 0) {
+        std::cout << "breaker_cmd(): id == 0\n";
+        return -1;
+    }
+    if (d == NULL) {
+        std::cout << "breaker_cmd(): d == NULL\n";
+        return -1;
+    }
+    for(int i = 0; i < NUM_BREAKER; i++) {
+        if(d->br_write_arr[i].id == id) {
+            //gettimeofday(&dptr->button_press_time, NULL);
+            ps.incarnation = My_Incarnation;
+            ps.seq_num = Seq_Num;
+            if (breaker_on_cmd) {
+                mess = PKT_Construct_HMI_Command_Msg(ps, MAX_EMU_RTU + My_ID, PNNL, BREAKER_ON, i);
+            }
+            else {
+                mess = PKT_Construct_HMI_Command_Msg(ps, MAX_EMU_RTU + My_ID, PNNL, BREAKER_OFF, i);
+            }
+            mess->global_configuration_number=My_Global_Configuration_Number;
+            Seq_Num++;
+            nbytes = sizeof(signed_message) + mess->len;
+            // IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_in.ipc_remote);
+            forward_to_proxy(mess);
+            free(mess);
+            std::string cmd_str;
+            if (breaker_on_cmd) {
+                cmd_str = "on";
+            }
+            else {
+                cmd_str = "off";
+            }
+            std::cout << "breaker_cmd(): message sent to turn breaker id " << id << " " << cmd_str << "\n";
+            return 0;
+        }
+    }
+}
+
+void apply_attack(std::string attack_instr) {
+    if (!attack_instr.empty() && attack_instr[attack_instr.length()-1] == '\n') { // remove trailing '\n'
+        attack_instr.erase(attack_instr.length()-1);
+    }
+
+    data_model *d;
+    d = &the_model;
+    if(d == NULL) {
+        std::cout << "apply_attack(): No browser connected\n";
+        return;
+    }
+
+    std::string attack_type;
+    // attack_instr format:
+    // 2 special cases and 1 generalize format:
+    // special 1: `plc_lock` to stop applying plc updates that may be coming in
+    // special 2: `plc_unlock` to resume applying plc updates that may be coming in
+    // general format: `x_a_i_v`
+    // where,   x is either `r` to read the val of the array, `w` to write a val there, or 'a' for arbitrary breaker command
+    //      if x if `r` or `w`:
+    //          a \in {p, br, bw} corresponding to the arrays {point_arr, br_read_arr, br_write_arr}
+    //          i is the index
+    //          v is what to set the value of the element (char) to i.e point_arr[i] = val, br_read_arr[i] = val, br_write_arr[i] = val
+    //             v is ignored if reading
+    //      if x is `a`
+    //          then format if a_id_on/off
+
+    if (attack_instr == "plc_lock") {
+        demo_plc_is_locked = true;
+        std::cout << "apply_attack(): plc_lock applied\n";
+    }
+    else if (attack_instr == "plc_unlock") {
+        std::cout << "apply_attack(): plc_unlock applied\n";
+        demo_plc_is_locked = false;
+    }
+    else {
+        std::string s = attack_instr;
+        std::string delimiter = "_";
+        
+        std::string token_x = s.substr(0, s.find(delimiter));
+        s.erase(0, s.find(delimiter) + delimiter.length());
+    
+        if (token_x == "a") {
+            std::string token_id = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            int breaker_id = std::stoi(token_id);
+            
+            std::string token_cmd = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            bool cmd_is_on;
+            if (token_cmd == "on") {
+                cmd_is_on = true;
+            }
+            else {
+                cmd_is_on = false;
+            }
+    
+            breaker_cmd(breaker_id, cmd_is_on);
+        }
+        else {
+            std::string token_a = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            
+            std::string token_i = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            
+            std::string token_v = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+    
+            int i = std::stoi(token_i);
+            if (token_x == "w") {
+                if (token_a == "p") {
+                    if (!(i < NUM_POINT)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        char val_char = token_v.at(0);
+                        d->point_arr[i].value = val_char;
+                        std::cout << "done. \n";
+                    }
+                }
+                else if (token_a == "br") {
+                    if (!(i < NUM_BREAKER)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        char val_char = token_v.at(0);
+                        d->br_read_arr[i].value = val_char;
+                        std::cout << "done. \n";
+                    }
+                }
+                else if (token_a == "bw") {
+                    if (!(i < NUM_BREAKER)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        char val_char = token_v.at(0);
+                        d->br_write_arr[i].value = val_char;
+                        std::cout << "done. \n";
+                    }
+                }
+                else {
+                    std::cout << "apply_attack(): Invalid `a` token in attack instruction\n";
+                }
+            }
+            else if (token_x == "r") {
+                if (token_a == "p") {
+                    if (!(i < NUM_POINT)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        std::cout << d->point_arr[i].value ;
+                        std::cout << ". done. \n";
+                    }
+                }
+                else if (token_a == "br") {
+                    if (!(i < NUM_BREAKER)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        std::cout << d->br_read_arr[i].value ;
+                        std::cout << ". done. \n";
+                    }
+                }
+                else if (token_a == "bw") {
+                    if (!(i < NUM_BREAKER)) {
+                        std::cout << "apply_attack(): Invalid index in attack instruction\n";
+                    }
+                    else {
+                        std::cout << "Applying `" << attack_instr << "`: ";
+                        std::cout << d->br_write_arr[i].value ;
+                        std::cout << ". done. \n";
+                    }
+                }
+                else {
+                    std::cout << "apply_attack(): Invalid `a` token in attack instruction\n";
+                }
+            }
+            else {
+                std::cout << "apply_attack(): Invalid `x` token (specifies read or write operation) in attack instruction\n";
+            }
+        }
+    }
+
+}
+void* read_file(void *arg) {
+    // adapted from: https://stackoverflow.com/questions/12535381/c-continuous-read-file
+    UNUSED(arg);
+    std::string filename = "./attack.txt";
+    
+    std::ifstream file(filename);
+    if(file.fail()){
+        std::cout << "Unable to access the file \"" << filename << "\". Exiting.\n";
+        exit(EXIT_FAILURE);
+    }
+
+    int end_pos = 0, start_pos = 0;
+    long length;
+    char* buffer;
+    std::ifstream is(filename.c_str(), std::ifstream::binary);  
+    bool is_first_pass = true;
+    while (true)
+    {
+        if (is) {
+            is.seekg(0, is.end);
+            end_pos = is.tellg(); //always update end pointer to end of the file  
+            is.seekg(start_pos, is.beg); // move read pointer to the new start position 
+            // allocate memory:
+            length = end_pos - start_pos;
+            buffer = new char[length];
+
+            // read data as a block: (end_pos - start_pos) blocks form read pointer 
+            is.read(buffer, length);    
+            is.close();    
+            // print content:
+            if (!is_first_pass) {
+                if (length != 0) {
+                    // std::cout.write(buffer, length);
+                    std::string this_attack_instruction = buffer;
+                    apply_attack(this_attack_instruction);
+                }
+            }
+            else {
+                is_first_pass = false; // we want to ignore anything present in the file when reading it for the first time
+            }
+            delete[] buffer;
+            start_pos = end_pos; // update start pointer    
+        }
+
+        //wait and restart with new data 
+        sleep(1);
+        is.open(filename.c_str(), std::ifstream::binary);    
+    }    
+}
+
+void init_COMPROMISE_DEMO_pipe(pthread_t &attack_demo_thread) {
+    // we provide a demo to show how a compromised HMI can behave
+    // for this we have a "backdoor" which the attacker can use to intruct this HMI on what to do
+    // the HMI has a thread continuously reading a file called attack.txt in the ./ directory
+    // the function reads and ignores anything already in the file
+    // then it saves the last position where it read from 
+    // so keep on appending to the end of the file for new 'attack' instructions
+    demo_plc_is_locked = false;
+    pthread_create(&attack_demo_thread, NULL, &read_file, NULL);
+}
+#endif
+
 int main(int ac, char **av)
 {   
     PARAM p;
@@ -159,6 +422,11 @@ int main(int ac, char **av)
 
     signal(SIGPIPE, SIG_IGN);
     modelInit();
+
+    #if COMPROMISE_DEMO
+    pthread_t attack_demo_thread;
+    init_COMPROMISE_DEMO_pipe(attack_demo_thread);
+    #endif
 
     itrc_init(ac, av);
     pthread_create(&tid, NULL, &master_connection, NULL);

@@ -709,17 +709,19 @@ void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManag
 
 // TODO remove. also remove the 3 relevant headers
 void temp_test_switcher_msgs(std::string proxy_output) {
-    std::string data_file_path = "./switcher.txt";
-    std::time_t timestamp;
-    std::ofstream datafile;
+    // std::string data_file_path = "./switcher.txt";
+    // std::time_t timestamp;
+    // std::ofstream datafile;
 
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
-    timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    datafile << "=== New Entry ===\n";
-    datafile << "Time: " << std::ctime(&timestamp); 
-    datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
-    datafile << "=== End Entry ===\n\n";
-    datafile.close();
+    // datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    // timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    // datafile << "=== New Entry ===\n";
+    // datafile << "Time: " << std::ctime(&timestamp); 
+    // datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
+    // datafile << "=== End Entry ===\n\n";
+    // datafile.close();
+
+    return;
 }
 
 SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pthread_t &thread) {

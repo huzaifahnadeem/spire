@@ -66,6 +66,10 @@ extern "C" {
 int ipc_sock_to_proxy;
 int ipc_sock_from_proxy;
 
+#if COMPROMISE_DEMO
+bool demo_plc_is_locked;
+#endif
+
 void Process_Message(signed_message *);
 void Clear_All_Buttons();
 void Push_Buttons(int btype);
@@ -118,7 +122,7 @@ void Process_Config_Msg(signed_message * conf_mess,int mess_size){
 
 void Read_From_Master(int s, int dummy1, void *dummy2) 
 {   
-    std::cout << "There is message from the HMIproxy\n";
+    //std::cout << "There is message from the HMIproxy\n";
     int ret; 
     char buf[MAX_LEN];
     signed_message *cmess;
@@ -131,7 +135,7 @@ void Read_From_Master(int s, int dummy1, void *dummy2)
         printf("Read_From_Master: IPC_Rev failed\n");
     }
     else {
-        std::cout << "Message was received\n";
+        //std::cout << "Message was received\n";
     }
     cmess=(signed_message *)buf; 
     if(cmess->type ==  PRIME_OOB_CONFIG_MSG){
@@ -174,7 +178,7 @@ void Process_Message(signed_message *mess)
     then.tv_sec  = hmi_up->sec;
     then.tv_usec = hmi_up->usec;
     diff = diffTime(now, then);
-    printf("NET time = %lu sec, %lu usec\n", diff.tv_sec, diff.tv_usec);
+    //printf("NET time = %lu sec, %lu usec\n", diff.tv_sec, diff.tv_usec);
 
     d = &the_model;
     if(d == NULL) {
@@ -182,13 +186,25 @@ void Process_Message(signed_message *mess)
         return;
     }
 
-    for(i = 0; i < NUM_POINT; i++) {
-        d->point_arr[i].value = s_arr[i];
+    #if COMPROMISE_DEMO
+    if (!demo_plc_is_locked) {
+        for(i = 0; i < NUM_POINT; i++) {
+            d->point_arr[i].value = s_arr[i];
+        }
+        for (i = 0; i < NUM_BREAKER; i++) {
+            d->br_read_arr[i].value = r_arr[i];
+            d->br_write_arr[i].value = w_arr[i];
+        }
     }
-    for (i = 0; i < NUM_BREAKER; i++) {
-        d->br_read_arr[i].value = r_arr[i];
-        d->br_write_arr[i].value = w_arr[i];
-    }
+    #else // this is the normal piece of code
+        for(i = 0; i < NUM_POINT; i++) {
+            d->point_arr[i].value = s_arr[i];
+        }
+        for (i = 0; i < NUM_BREAKER; i++) {
+            d->br_read_arr[i].value = r_arr[i];
+            d->br_write_arr[i].value = w_arr[i];
+        }
+    #endif
 }
 
 void Execute_Script(int s, int dummy1, void *dummy2)
