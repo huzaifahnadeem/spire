@@ -33,6 +33,9 @@ namespace system_ns {
 #define IPC_TO_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_ioproc_to_proxy"
 #define IPC_FROM_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
+int HMI_scenario = PNNL;
+// int HMI_scenario = JHU;
+
 void parse_args(int ac, char **av, std::string &ioproc_spinesd_ip_addr, int &ioproc_spinesd_port);
 void itrc_init_ioproc(std::string ioproc_spinesd_ip_addr, int ioproc_spinesd_port);
 void setup_ipc_with_parent();
@@ -140,7 +143,7 @@ void _itrc_init_hmi(std::string spinesd_ip_addr, int spinesd_port, system_ns::it
     system_ns::My_Incarnation = now.tv_sec;
     Seq_Num = 1;
     system_ns::Type = HMI_TYPE;
-    system_ns::My_ID = PNNL; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
+    system_ns::My_ID = HMI_scenario; // TODO: might want to change this to PNNL_W_PROXY or PROXY_FOR_PNNL to differentiate from plain old PNNL if someone wants to run them together
     system_ns::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + MAX_EMU_RTU + system_ns::My_ID;
     system_ns::My_IP = system_ns::getIP();
 
