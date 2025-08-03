@@ -39,6 +39,11 @@ extern "C" {
   #include "../config/config_helpers.h"
 }
 
+// for PLC compromise demo
+#ifndef COMPROMISE_DEMO
+#define COMPROMISE_DEMO 0
+#endif
+
 /* RTU information container */
 typedef struct namelist_d {
     int *namelist_count;
@@ -68,6 +73,65 @@ struct timeval    Poll_Period;
 // TODO remove
 //int counter = 0;
 //int global_val = 0;
+#if COMPROMISE_DEMO
+void apply_attack(int rtu_id, char op, char arr_name, int arr_idx, char val_to_write_br, int32u val_to_write_point) {
+    if (op != 'w' || op != 'r') {
+        printf("COMPROMISE_DEMO: op not in {'r', 'w'}. moving on...\n");
+        return;
+    }
+    if (arr_name != 'p' || arr_name != 'w' || arr_name != 'r') {
+        printf("COMPROMISE_DEMO: arr_name not in {'p', 'r', 'w'}. moving on...\n");
+        return;
+    }
+    if (arr_name == 'p' && !(arr_idx >= 0 && arr_idx < 8)) {
+        printf("COMPROMISE_DEMO: in correct arr_idx value `%d` provided. moving on...\n", arr_idx);
+        return;
+    }
+    if (!(arr_idx >= 0 && arr_idx < 14)) {
+        printf("COMPROMISE_DEMO: in correct arr_idx value `%d` provided. moving on...\n", arr_idx);
+        return;
+    }
+
+    pnnl_fields *pf;
+    if (subs[rtu_id].scen_type == PNNL) {
+        pf = (pnnl_fields *)(subs[rtu_id].data);
+        if (op == 'r') {
+            printf("COMPROMISE_DEMO: reading val from array `%c` at idx `%d`: ", arr_name, arr_idx);
+            if (arr_name == 'p') {
+                printf(pf->point[arr_idx]);
+            }
+            if (arr_name == 'w') {
+                printf(pf->breaker_write[arr_idx]);
+            }
+            if (arr_name == 'r') {
+                printf(pf->breaker_read[arr_idx]);
+            }
+            printf("\n");
+            return;
+        }
+        if (op == 'w') {
+            if (arr_name == 'p') {
+                printf("COMPROMISE_DEMO: writing val `%d` to array `%c` at idx `%d`: ", val_to_write_point, arr_name, arr_idx);
+                pf->point[arr_idx] = val_to_write_point;
+            }
+            if (arr_name == 'w') {
+                printf("COMPROMISE_DEMO: writing val `%d` to array `%c` at idx `%d`: ", val_to_write_br, arr_name, arr_idx);
+                pf->breaker_write[arr_idx] = val_to_write_br;
+            }
+            if (arr_name == 'r') {
+                printf("COMPROMISE_DEMO: writing val `%d` to array `%c` at idx `%d`: ", val_to_write_br, arr_name, arr_idx);
+                pf->breaker_read[arr_idx] = val_to_write_br;
+            }
+            printf("done.\n");
+            return;
+        }
+    }
+    else {
+        printf("COMPROMISE_DEMO: non-pnnl scenario encountered. moving on...\n");
+        return;
+    }
+}
+#endif
 
 //Will write info to SM
 int Write_To_SM(int idx)
