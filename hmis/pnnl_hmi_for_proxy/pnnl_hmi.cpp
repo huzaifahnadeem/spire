@@ -226,7 +226,7 @@ void apply_attack(std::string attack_instr) {
     //          i is the index
     //          v is what to set the value of the element (char) to i.e point_arr[i] = val, br_read_arr[i] = val, br_write_arr[i] = val
     //             v is ignored if reading
-    //      if x is `a`
+    //      if x is `a` (this doesnt just update data structs, it sends a fake message)
     //          then format if a_id_on/off
 
     if (attack_instr == "plc_lock") {
@@ -402,7 +402,7 @@ void* read_file(void *arg) {
     }    
 }
 
-void init_COMPROMISE_DEMO_pipe(pthread_t &attack_demo_thread) {
+void init_compromise_demo_pipe(pthread_t &attack_demo_thread) {
     // we provide a demo to show how a compromised HMI can behave
     // for this we have a "backdoor" which the attacker can use to intruct this HMI on what to do
     // the HMI has a thread continuously reading a file called attack.txt in the ./ directory
@@ -425,7 +425,7 @@ int main(int ac, char **av)
 
     #if COMPROMISE_DEMO
     pthread_t attack_demo_thread;
-    init_COMPROMISE_DEMO_pipe(attack_demo_thread);
+    init_compromise_demo_pipe(attack_demo_thread);
     #endif
 
     itrc_init(ac, av);
