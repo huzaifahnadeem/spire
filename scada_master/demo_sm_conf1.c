@@ -68,6 +68,15 @@
 #include "../config/cJSON.h"
 #include "../config/config_helpers.h"
 
+// // for SM compromise demo
+// #ifndef COMPROMISE_DEMO
+// #define COMPROMISE_DEMO 0
+// #endif
+
+// #if COMPROMISE_DEMO
+// #include <iostream>
+// #endif
+
 // These are the stages used for state collection
 // copied from itrc.c
 #define FROM_CLIENT   1
@@ -118,6 +127,148 @@ void print_state();
 
 void *spines_comm_handler(void *data);
 
+// #if COMPROMISE_DEMO
+// void apply_attack(std::string attack_instr) {
+//     // attack_instr format:
+//     // 1:
+
+//     if (!attack_instr.empty() && attack_instr[attack_instr.length()-1] == '\n') { // remove trailing '\n'
+//         attack_instr.erase(attack_instr.length()-1);
+//     }
+//     // special intructions first, then more general commands:
+//     if (attack_instr == "1") {
+//         signed_message *mess;
+//         seq_pair ps;
+//         int nbytes;
+
+//         hmi_command_msg *hmi_command;
+
+//         mess = PKT_Construct_Signed_Message(sizeof(hmi_command_msg));
+//         mess->len = sizeof(hmi_command_msg);
+//         mess->type = HMI_COMMAND;
+
+//         hmi_command = (hmi_command_msg *)(mess + 1);
+//         hmi_command->seq.incarnation = 100;
+//         hmi_command->seq.seq_num = 100;
+//         hmi_command->hmi_id  = MAX_EMU_RTU + 1;
+//         hmi_command->scen_type = PNNL;
+//         hmi_command->ttip_pos = 3;
+//         int cmd_type = BREAKER_ON;
+//         int cmd_type_val = (cmd_type == BREAKER_ON? 1:0);
+//         hmi_command->type = cmd_type;
+        
+//         hmi_command_msg *payload;
+//         signed_message *dad_mess = NULL;;
+//         payload = (hmi_command_msg *)(mess + 1);
+
+//         dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq, payload->scen_type,
+//                         BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, payload->ttip_pos, cmd_type_val);
+
+//         nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
+//         IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote); // send to spines_comm_handler to send to the clients
+//         free(dad_mess);
+        
+//         std::cout << "apply_attack(): attack #1\n";
+//     }
+//     else if (attack_instr == "plc_unlock") {
+//         std::cout << "apply_attack(): attack #2\n";
+//     }
+//     else {
+//         // general instructions
+//         // TODO
+//         return;
+//     }
+// }
+// void* read_file(void *arg) {
+//     UNUSED(arg);
+//     char[] filename = "./attack.txt";
+    
+//     std::ifstream file(filename);
+//     if(file.fail()){
+//         std::cout << "Unable to access the file \"" << filename << "\". Exiting.\n";
+//         exit(EXIT_FAILURE);
+//     }
+
+//     int end_pos = 0, start_pos = 0;
+//     long length;
+//     char* buffer;
+//     std::ifstream is(filename.c_str(), std::ifstream::binary);  
+//     bool is_first_pass = true;
+//     while (true)
+//     {
+//         if (is) {
+//             is.seekg(0, is.end);
+//             end_pos = is.tellg(); //always update end pointer to end of the file  
+//             is.seekg(start_pos, is.beg); // move read pointer to the new start position 
+//             // allocate memory:
+//             length = end_pos - start_pos;
+//             buffer = new char[length];
+
+//             // read data as a block: (end_pos - start_pos) blocks form read pointer 
+//             is.read(buffer, length);    
+//             is.close();    
+//             // print content:
+//             if (!is_first_pass) {
+//                 if (length != 0) {
+//                     // std::cout.write(buffer, length);
+//                     std::string this_attack_instruction = buffer;
+//                     apply_attack(this_attack_instruction);
+//                 }
+//             }
+//             else {
+//                 is_first_pass = false; // we want to ignore anything present in the file when reading it for the first time
+//             }
+//             delete[] buffer;
+//             start_pos = end_pos; // update start pointer    
+//         }
+
+//         //wait and restart with new data 
+//         sleep(1);
+//         is.open(filename.c_str(), std::ifstream::binary);    
+//     }    
+//     FILE *fp;
+//     char buffer[1024];
+//     long last_pos = 0;
+//     struct stat st;
+
+//     fp = fopen(filename, "r");
+//     if (fp == NULL) {
+//         perror("Error opening file");
+//         return ;
+//     }
+//     while (1) {
+//         // Get current file size (or modification time)
+//         if (stat(filename, &st) == 0) { // Check modification time or file size
+//             if (st.st_size > last_pos) {
+//                 fseek(fp, last_pos, SEEK_SET);
+//                 while (fgets(buffer, sizeof(buffer), fp) != NULL) {
+//                     printf("%s", buffer);
+//                     last_pos = ftell(fp);
+//                 }
+//             } else {
+//                 // No new data, clear EOF indicator
+//                 clearerr(fp);
+//             }
+//         } else {
+//             perror("Error getting file stats");
+//         }
+
+//         sleep(1); // Wait for 1 second before checking again
+//     }
+
+//     fclose(fp);
+// }
+// void init_compromise_demo_pipe(pthread_t &attack_demo_thread) {
+//     // we provide a demo to show how a compromised SM can behave
+//     // for this we have a "backdoor" which the attacker can use to intruct this SM on what to do
+//     // there is a thread continuously reading a file called attack.txt in the ./ directory
+//     // the function reads and ignores anything already in the file
+//     // then it saves the last position where it read from 
+//     // so keep on appending to the end of the file for new 'attack' instructions
+//     pthread_create(&attack_demo_thread, NULL, &read_file, NULL);
+// }
+// #endif
+
 int main(int argc, char **argv)
 {   
     
@@ -139,6 +290,11 @@ int main(int argc, char **argv)
 
     printf("INIT demo sm for config 1\n");
     init();
+
+    // #if COMPROMISE_DEMO
+    // pthread_t attack_demo_thread;
+    // init_compromise_demo_pipe(attack_demo_thread);
+    // #endif
 
     // NET Setup
     gettimeofday(&now, NULL);

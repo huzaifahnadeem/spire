@@ -151,7 +151,7 @@ void apply_attack(std::string attack_instr) {
     //          v is what to set the value of the element (char) to i.e point_arr[i] = val, br_read_arr[i] = val, br_write_arr[i] = val
     //             v is ignored if reading
     //      if x is `a` (this doesnt just update data structs, it sends a fake message)
-    //          then format if a_id_on/off // TODO
+    //          then format is ... see below under 'if (token_x == "a") {'
 
     if (!attack_instr.empty() && attack_instr[attack_instr.length()-1] == '\n') { // remove trailing '\n'
         attack_instr.erase(attack_instr.length()-1);
@@ -174,18 +174,62 @@ void apply_attack(std::string attack_instr) {
         s.erase(0, s.find(delimiter) + delimiter.length());
     
         if (token_x == "a") { // send a fake message
-            // TODO
-            // rtu_data_msg tmp;
-            // signed_message* mess;
-            // tmp->seq;
-            // tmp->rtu_id;
-            // tmp->scen_type;
-            // tmp->data;
-            // mess = PKT_Construct_RTU_Data_Msg(&tmp);
-            // int nBytes = sizeof(signed_message) + mess->len;
-            // subs[idx].seq.seq_num++;
-            // int ret = IPC_Send(ipc_sock, (void *)mess, nBytes, itrc_main.ipc_remote);
-            // free(mess);
+            // tokens after the first one i.e. `a`:  sub_idx, seq_incarnation, seq_num, rtuid, scen_type, rest continued below for pnnl_fields
+            // value of '.' means skip. any other value is used to overwrite that respective value in the message
+            std::string token_sub_idx = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            
+            signed_message *mess;
+            mess = PKT_Construct_RTU_Data_Msg(&subs[std::stoi(token_sub_idx)]);
+
+            std::string token_seq_inc = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_seq_num = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_rtuid = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_scen_type = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+
+            rtu_data_msg* rtu_data;
+            rtu_data = (rtu_data_msg *)(mess + 1);
+            if (token_seq_inc != ".")
+                rtu_data->seq.incarnation = std::stoi(token_seq_inc);
+            if (token_seq_num != ".")
+                rtu_data->seq.seq_num = std::stoi(token_seq_num);
+            if (token_rtuid != ".")
+                rtu_data->rtu_id = std::stoi(token_rtuid);
+            if (token_scen_type != ".")
+                rtu_data->scen_type = std::stoi(token_scen_type);
+
+
+            pnnl_fields * pf = (pnnl_fields *)(rtu_data->data);
+
+            // rest of tokens: use '.' to skip. other values used as index and the val to overwrite with
+            // point_idx, point_arr_val, breaker_read_idx, breaker_read_arr_val, breaker_write_idx, breaker_write_arr_val
+            std::string token_point_idx = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_point_val = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_br_idx = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_br_val = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_bw_idx = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            std::string token_bw_val = s.substr(0, s.find(delimiter));
+            s.erase(0, s.find(delimiter) + delimiter.length());
+            
+            if ((token_point_idx != ".") && token_point_val != ".")
+                pf->point[std::stoi(token_point_idx)] = std::stoi(token_point_val);
+            if ((token_br_idx != ".") && token_br_val != ".")
+                pf->breaker_read[std::stoi(token_br_idx)] = std::stoi(token_br_val);
+            if ((token_bw_idx != ".") && token_bw_val != ".")
+                pf->breaker_write[std::stoi(token_bw_idx)] = std::stoi(token_bw_val);
+
+            int nBytes = sizeof(signed_message) + mess->len;
+            int ret = IPC_Send(ipc_sock, (void *)mess, nBytes, itrc_main.ipc_remote);
+            free(mess);
         }
         else {
             std::string token_a = s.substr(0, s.find(delimiter));
