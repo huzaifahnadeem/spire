@@ -16,6 +16,11 @@
 #include <sys/prctl.h> // required for prctl() (used to kill this proc if the parents gets a sighup)
 #include <signal.h> // has the declaration for SIGHUP
 
+// TODO remove (used by temp_measure_switch_time)
+#include <fstream> // for file operations
+#include <chrono> // for time
+#include <ctime> // for time
+
 // NOTE: in the Makefile, we have $SPIRE_DIR. Set that to the right spire directory if you do not want to use the default path
 namespace system_ns {
     extern "C" {
@@ -49,6 +54,28 @@ system_ns::itrc_data ioproc_mainthread_to_itrcthread_data, ioproc_itr_client_dat
 std::string ipc_path_suffix;
 int proxy_id_for_itrc = -1; // only used for RTU/PLC clients
 bool client_is_hmi;
+
+void temp_measure_switch_time(std::string ioproc_output) {
+    std::string data_file_path = "~/switch_measure_ioproc.txt";
+    std::time_t timestamp;
+    std::ofstream datafile;
+
+    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    // timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    std::chrono::system_clock::rep microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
+    
+    datafile << "=== New Entry ===\n";
+    // datafile << "Time: " << std::ctime(&timestamp); 
+    datafile << "Time: " << microsec_since_epoch << " \n"; 
+    datafile << "IO_PROC OUTPUT: " << ioproc_output << "\n";    
+    datafile << "=== End Entry ===\n\n";
+    datafile.close();
+
+    return;
+}
 
 int main(int ac, char **av) {
     // this kills this process if the parent gets a SIGHUP:
@@ -227,16 +254,22 @@ void recv_then_fw_to_parent(int s, void *dummy1, void *dummy2) // called by hand
     std::cout << "io_process (" << ipc_path_suffix << "): There is a message from the ITRC Client (ioproc) \n";
     ret = system_ns::IPC_Recv(s, buf, MAX_LEN);
     if (ret < 0) printf("io_process: recv_msg_from_itrc(): IPC_Rev failed\n");
-    mess = (system_ns::signed_message *)buf;
-    nbytes = sizeof(system_ns::signed_message) + mess->len;
-    // Forward to parent:
-    std::string ipc_to_parent;
-    if (client_is_hmi)
-        ipc_to_parent = IPC_TO_PARENT_HMICLIENT;
-    else
-        ipc_to_parent = IPC_TO_PARENT_RTUPLCCLIENT;
-    system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, (ipc_to_parent + ipc_path_suffix).c_str());
-    std::cout << "io_process (" << ipc_path_suffix << "): The message has been forwarded to the parent proc.\n";
+    if (ret > 0) {
+        temp_measure_switch_time("io_process: msg received from itrc()");
+        
+        mess = (system_ns::signed_message *)buf;
+        nbytes = sizeof(system_ns::signed_message) + mess->len;
+        // Forward to parent:
+        std::string ipc_to_parent;
+        if (client_is_hmi)
+            ipc_to_parent = IPC_TO_PARENT_HMICLIENT;
+        else
+            ipc_to_parent = IPC_TO_PARENT_RTUPLCCLIENT;
+        system_ns::IPC_Send(ipc_sock_to_parent, (void *)mess, nbytes, (ipc_to_parent + ipc_path_suffix).c_str());
+        std::cout << "io_process (" << ipc_path_suffix << "): The message has been forwarded to the parent proc.\n";
+        
+        temp_measure_switch_time("io_process: The message has been forwarded to the parent proc (i.e. proxy)");
+    }
 }
 
 void *handler_msg_from_itrc(void *arg)

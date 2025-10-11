@@ -1,6 +1,6 @@
 #include "proxy.h"
 
-// TODO remove (used by temp_test_switcher_msgs)
+// TODO remove (used by temp_measure_switch_time)
 #include <fstream> // for file operations
 #include <chrono> // for time
 #include <ctime> // for time
@@ -32,9 +32,9 @@ int main(int ac, char **av) {
     // sets up socket for the switcher messages and handle events:
     pthread_t switcher_listen_thread;
     SwitcherManager switcher_manager(args, &io_proc_manager, switcher_listen_thread);
-    temp_test_switcher_msgs("main(): before E_handle_events");
+    temp_measure_switch_time("main(): before E_handle_events");
     E_handle_events(); // signal libspread events handler to start handling all the events for which fds were set by the objects above
-    temp_test_switcher_msgs("main(): after E_handle_events");
+    temp_measure_switch_time("main(): after E_handle_events");
 
     // wait for any threads before exiting
     pthread_join(client_listen_thread, NULL);
@@ -708,18 +708,24 @@ void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManag
 }
 
 // TODO remove. also remove the 3 relevant headers
-void temp_test_switcher_msgs(std::string proxy_output) {
-    // std::string data_file_path = "./switcher.txt";
-    // std::time_t timestamp;
-    // std::ofstream datafile;
+void temp_measure_switch_time(std::string proxy_output) {
+    std::string data_file_path = "~/switch_measure_proxy.txt";
+    std::time_t timestamp;
+    std::ofstream datafile;
 
-    // datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
     // timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    // datafile << "=== New Entry ===\n";
+    
+    auto now = std::chrono::system_clock::now();
+    auto time_since_epoch = now.time_since_epoch();
+    std::chrono::system_clock::rep microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
+    
+    datafile << "=== New Entry ===\n";
     // datafile << "Time: " << std::ctime(&timestamp); 
-    // datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
-    // datafile << "=== End Entry ===\n\n";
-    // datafile.close();
+    datafile << "Time: " << microsec_since_epoch << " \n"; 
+    datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
+    datafile << "=== End Entry ===\n\n";
+    datafile.close();
 
     return;
 }
@@ -752,7 +758,7 @@ void SwitcherManager::setup_switcher_socket() {
         this->switcher_socket = Spines_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, proto, this->mcast_addr.port);
         if (this->switcher_socket < 0 ) {
             std::cout << "Error setting the socket for the switcher. Trying again in " << retry_wait_sec << "sec\n";
-            temp_test_switcher_msgs("Error setting the socket for the switcher. Trying again in ...");
+            // temp_measure_switch_time("Error setting the socket for the switcher. Trying again in ...");
             sleep(retry_wait_sec);
         }
         else {
@@ -763,10 +769,10 @@ void SwitcherManager::setup_switcher_socket() {
     this->mcast_membership.imr_interface.s_addr = htonl(INADDR_ANY);
     if(spines_setsockopt(this->switcher_socket, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&this->mcast_membership, sizeof(this->mcast_membership)) < 0) {
         std::cout << "Mcast: problem in setsockopt to join multicast address";
-        temp_test_switcher_msgs("Mcast: problem in setsockopt to join multicast address");
+        // temp_measure_switch_time("Mcast: problem in setsockopt to join multicast address");
       }
     std::cout << "Mcast setup done\n";
-    temp_test_switcher_msgs("Mcast setup done");
+    // temp_measure_switch_time("Mcast setup done");
 }
 void* SwitcherManager::init_events_handler(void* arg) {
     SwitcherManager* this_class_object = (SwitcherManager*) arg;
@@ -774,13 +780,13 @@ void* SwitcherManager::init_events_handler(void* arg) {
         return NULL;
 
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
-    temp_test_switcher_msgs("SwitcherManager::init_events_handler: before E_attach_fd");
+    // temp_measure_switch_time("SwitcherManager::init_events_handler: before E_attach_fd");
     E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, MEDIUM_PRIORITY);
-    temp_test_switcher_msgs("SwitcherManager::init_events_handler: after E_attach_fd");
+    // temp_measure_switch_time("SwitcherManager::init_events_handler: after E_attach_fd");
     return NULL;
 }
 void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
-    temp_test_switcher_msgs("SwitcherManager::handle_switcher_message: called");
+    temp_measure_switch_time("SwitcherManager::handle_switcher_message: called");
     UNUSED(code);
     SwitcherManager * this_class_object = (SwitcherManager *) data;
     if (this_class_object->no_switcher)
@@ -792,27 +798,27 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     socklen_t from_len = sizeof(from_addr);
     Switcher_Message * message;
     
-    temp_test_switcher_msgs("SwitcherManager::handle_switcher_message: before spines_recvfrom()");
+    // temp_measure_switch_time("SwitcherManager::handle_switcher_message: before spines_recvfrom()");
     ret = spines_recvfrom(sock, buff, this_class_object->switch_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
-    temp_test_switcher_msgs("SwitcherManager::handle_switcher_message: after spines_recvfrom()");
+    // temp_measure_switch_time("SwitcherManager::handle_switcher_message: after spines_recvfrom()");
     if (ret < 0) {
         std::cout << "Switcher Message Handler: Error receving the message\n";
-        temp_test_switcher_msgs("Switcher Message Handler: Error receving the message");
+        // temp_measure_switch_time("Switcher Message Handler: Error receving the message");
     }
     else {
         if ((unsigned long) ret < sizeof(Switcher_Message)){
             std::cout << "Switcher Message Handler: Error - The received message is smaller than expected\n";
-            temp_test_switcher_msgs("Switcher Message Handler: Error - The received message is smaller than expected");
+            // temp_measure_switch_time("Switcher Message Handler: Error - The received message is smaller than expected");
             return;
         }
         message = (Switcher_Message*) buff;
         std::cout << "Switcher Message Handler: Received a message.\n";    
-        temp_test_switcher_msgs("Switcher Message Handler: Received a message.");
+        // temp_measure_switch_time("Switcher Message Handler: Received a message.");
         // TODO: check that the message has correct values (i.e. ignore if e.g. is asks you to remove an io proc with an id that doesnt exist)
         // ignore if empty message
         if (message->new_active_system_id == "" && message->add_io_proc_path == "" && message->add_io_proc_spinesd_addr == "" && message->add_io_proc_id == "" && message->remove_io_proc_id == "") {
             std::cout << "Switcher Message Handler: message was empty. Ignored.\n";  
-            temp_test_switcher_msgs("Switcher Message Handler: message was empty. Ignored.");  
+            // temp_measure_switch_time("Switcher Message Handler: message was empty. Ignored.");  
             return;
         }
 
@@ -823,7 +829,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             std::string new_io_proc_id = (message->add_io_proc_id == ""? message->add_io_proc_path: message->add_io_proc_id);
             this_class_object->io_proc_manager->add_io_proc(new_io_proc_id, message->add_io_proc_path, parse_socket_address(message->add_io_proc_spinesd_addr));
             std::cout << "Switcher Message Handler: added a new I/O process. ID=" << new_io_proc_id << ", binary path=" << message->add_io_proc_path << "\n";  
-            temp_test_switcher_msgs("Switcher Message Handler: added a new I/O process...");
+            temp_measure_switch_time("Switcher Message Handler: added a new I/O process...");
         }
         
         // update the active system id, if message has that info:
@@ -831,7 +837,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             std::string new_id = message->new_active_system_id;
             this_class_object->io_proc_manager->update_active_system_id(new_id);
             std::cout << "Switcher Message Handler: Updated active system ID from `" << this_class_object->io_proc_manager->get_active_sys_id() << "` to `" << message->new_active_system_id << "`\n";
-            temp_test_switcher_msgs("Switcher Message Handler: Updated active system ID from ...");
+            temp_measure_switch_time("Switcher Message Handler: Updated active system ID from ...");
         }
 
         // remove an io proc, if message has that info:
@@ -839,11 +845,11 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             // this fn ignores the request if removing the currently active io proc:
             this_class_object->io_proc_manager->kill_io_proc(message->remove_io_proc_id);
             std::cout << "Switcher Message Handler: Killed I/O process with id `" << message->remove_io_proc_id << "`\n";
-            temp_test_switcher_msgs("Switcher Message Handler: Killed I/O process with id ...");
+            temp_measure_switch_time("Switcher Message Handler: Killed I/O process with id ...");
         }
     }
     // TODO: forward received messages to the DC
-    temp_test_switcher_msgs("SwitcherManager::handle_switcher_message: about to return.");
+    temp_measure_switch_time("SwitcherManager::handle_switcher_message: about to return.");
     return;
 }
 

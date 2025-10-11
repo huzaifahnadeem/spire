@@ -231,4 +231,4 @@ int string_to_protocol(char * prot);
 // int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port);
 // int my_Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto);
 
-void temp_test_switcher_msgs(std::string proxy_output); // TODO remove
+void temp_measure_switch_time(std::string proxy_output); // TODO remove
