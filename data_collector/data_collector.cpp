@@ -169,7 +169,13 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
     // note that log_files_dir can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
     std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
-  
+    
+    // TODO: remove this -- temporarily stopped the data collector from writing the HMI_UPDATE/RTU_DATA messages for the demo (there's too many of these messages)
+    if (data->type == HMI_UPDATE)
+        return;
+    if (data->type == RTU_DATA)
+        return;
+
     std::ofstream datafile;
     datafile.open(log_file_path.c_str(), std::ios_base::app); // open in append mode
     datafile << "# === New Entry ===\n"; // a yaml comment
