@@ -834,9 +834,10 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         
         // update the active system id, if message has that info:
         if (strcmp(message->new_active_system_id, "") != 0) {
+            std::string old_sys_id = this_class_object->io_proc_manager->get_active_sys_id();
             std::string new_id = message->new_active_system_id;
             this_class_object->io_proc_manager->update_active_system_id(new_id);
-            std::cout << "Switcher Message Handler: Updated active system ID from `" << this_class_object->io_proc_manager->get_active_sys_id() << "` to `" << message->new_active_system_id << "`\n";
+            std::cout << "Switcher Message Handler: Updated active system ID from `" << old_sys_id << "` to `" << message->new_active_system_id << "`\n";
             temp_measure_switch_time("Switcher Message Handler: Updated active system ID from ...");
         }
 
