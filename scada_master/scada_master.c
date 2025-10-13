@@ -181,11 +181,11 @@ void apply_attack(char * attack_instr) {
         token_bw_val = strtok(NULL, delimiter);
         
         if ((strcmp(token_point_idx, ".") != 0) && (strcmp(token_point_val, ".") != 0))
-            pf->point[atoi(token_point_idx)] = atoi(token_point_val);
-        if ((strcmp(token_br_idx, ".") != strcmp) && (strcmp(token_br_val, "."), != 0))
-            pf->breaker_read[atoi(token_br_idx)] = atoi(token_br_val);
+            pf.point[atoi(token_point_idx)] = atoi(token_point_val);
+        if ((strcmp(token_br_idx, ".") != 0) && (strcmp(token_br_val, ".") != 0))
+            pf.breaker_read[atoi(token_br_idx)] = atoi(token_br_val);
         if ((strcmp(token_bw_idx, ".") != 0) && (strcmp(token_bw_val, ".") != 0))
-            pf->breaker_write[atoi(token_bw_idx)] = atoi(token_bw_val);
+            pf.breaker_write[atoi(token_bw_idx)] = atoi(token_bw_val);
 
         struct timeval now;
         gettimeofday(&now, NULL);
