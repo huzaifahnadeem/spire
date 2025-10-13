@@ -70,7 +70,7 @@
 #include "../config/cJSON.h"
 #include "../config/config_helpers.h"
 #include "key_value.h"
-#include "stdutil/stddll.h"
+// #include "stdutil/stddll.h" // temp for attack demo on itrc-based sm: uncomment this
 
 /* These are flags used in the TC queue */
 #define NORMAL_ORD 1

@@ -48,6 +48,7 @@
 #define ITRC_H
 
 #include "scada_packets.h"
+#include "stdutil/stddll.h" // temp for attack demo on itrc-based sm: remove this
 
 /* 
 #include "def.h"
@@ -86,5 +87,7 @@ void *ITRC_Client(void *data);
 void *ITRC_Prime_Inject(void *data);
 void *ITRC_Prime_Inject_conf1(void *data);
 void *ITRC_Master(void *data);
+
+extern stddll ord_queue; // temp for attack demo on itrc-based sm: remove this
 
 #endif /* ITRC_H */

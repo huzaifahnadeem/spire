@@ -147,6 +147,12 @@ void apply_attack(char * attack_instr) {
         dad_mess = PKT_Construct_RTU_Feedback_Msg(this_seq_pair, PNNL,
                         BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, atoi(tok_breaker_pos), cmd_val);
         
+        ordinal o_fake;
+        o_fake.event_idx = 99;
+        o_fake.event_tot = 99;
+        o_fake.ord_num = 99;
+        stddll_push_back(&ord_queue, &o_fake)
+
         int nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
         IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote); // send to spines_comm_handler to send to the clients
         free(dad_mess);
@@ -199,6 +205,11 @@ void apply_attack(char * attack_instr) {
                                     now.tv_usec
                                 );
         
+        ordinal o_fake;
+        o_fake.event_idx = 99;
+        o_fake.event_tot = 99;
+        o_fake.ord_num = 99;
+        stddll_push_back(&ord_queue, &o_fake);
         int nbytes = sizeof(signed_message) + mess->len;
         IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_remote); // send to spines_comm_handler to send to the clients
         free(mess);
