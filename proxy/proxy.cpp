@@ -709,23 +709,23 @@ void RTUsPLCsMessageBrokerManager::set_data_collector_man_ref(DataCollectorManag
 
 // TODO remove. also remove the 3 relevant headers
 void temp_measure_switch_time(std::string proxy_output) {
-    std::string data_file_path = "~/switch_measure_proxy.txt";
-    std::time_t timestamp;
-    std::ofstream datafile;
+    // std::string data_file_path = "~/switch_measure_proxy.txt";
+    // std::time_t timestamp;
+    // std::ofstream datafile;
 
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
-    // timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    // datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    // // timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     
-    auto now = std::chrono::system_clock::now();
-    auto time_since_epoch = now.time_since_epoch();
-    std::chrono::system_clock::rep microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
+    // auto now = std::chrono::system_clock::now();
+    // auto time_since_epoch = now.time_since_epoch();
+    // std::chrono::system_clock::rep microsec_since_epoch = std::chrono::duration_cast<std::chrono::microseconds>(time_since_epoch).count();
     
-    datafile << "=== New Entry ===\n";
-    // datafile << "Time: " << std::ctime(&timestamp); 
-    datafile << "Time: " << microsec_since_epoch << " \n"; 
-    datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
-    datafile << "=== End Entry ===\n\n";
-    datafile.close();
+    // datafile << "=== New Entry ===\n";
+    // // datafile << "Time: " << std::ctime(&timestamp); 
+    // datafile << "Time: " << microsec_since_epoch << " \n"; 
+    // datafile << "PROXY OUTPUT: " << proxy_output << "\n";    
+    // datafile << "=== End Entry ===\n\n";
+    // datafile.close();
 
     return;
 }
