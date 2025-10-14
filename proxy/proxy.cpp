@@ -784,7 +784,7 @@ void SwitcherManager::setup_switcher_socket() {
 
 
     // set up the switcher to-send socket.
-    if (this->switcher_send_addr == "" && this->switcher_send_addr.port == -1) {
+    if (this->switcher_send_addr.ip_addr == "" && this->switcher_send_addr.port == -1) {
         this->switcher_to_send_socket = -1;
     }
     else {
