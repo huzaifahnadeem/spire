@@ -13,6 +13,9 @@ std::queue <Switcher_Message> pending_messages;
 const int Switcher_Message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
 
 Spines_Connection* spines_connection_global = NULL;
+
+// void write_into_log(std::string output);
+
 int main(int ac, char **av) {
     parse_args(ac, av);
 
@@ -119,7 +122,15 @@ void* read_input_pipe(void* fn_arg) {
             std::cout << "Error: Spines sendto ret != num_bytes\n";
         }
         else {
-            std::cout << "Messages passed to spines successfully\n";
+            std::cout << "Messages passed to spines successfully.\n";
+            // auto now = std::chrono::high_resolution_clock::now();
+            // auto duration_since_epoch = now.time_since_epoch();
+            // std::chrono::nanoseconds ns = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch);
+            // std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(duration_since_epoch);
+            // std::stringstream output;
+            // output << "Messages passed to spines successfully. [Timestamp: " << ns.count() << "ns. " << us.count() << "µs." << "]\n";
+            // std::cout << output.str();
+            // write_into_log(output.str());
         }
     }
 
@@ -260,4 +271,23 @@ void* send_pending_messages_to_mcast_group(void* fn_args) {
             }
         }
     }
+}
+
+// void write_into_log(std::string output) {
+    std::string data_file_path = "~/switch_log.txt";
+    std::time_t timestamp;
+    std::ofstream datafile;
+
+    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    
+    if (datafile.is_open()) {
+        datafile << "=== New Entry ===\n";
+        datafile << output << "\n";    
+        datafile << "=== End Entry ===\n\n";
+        datafile.close();
+    } else {
+        std::cerr << "Error: Unable to open the log file (" << data_file_path << ")\n";
+    }
+
+    return;
 }
