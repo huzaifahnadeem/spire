@@ -7,10 +7,14 @@
 // };
 
 // TODO: changed these from std::string to char[]. std::string does feel like the right choice but its causing issues when we receive it on the other end like seg faults. so probably need to handle it more smartly by including lengths and stuff
-struct Switcher_Message {
+struct Switcher_Message { // this is the message that the switcher sends to the proxies
     char new_active_system_id[50]     = "";
     char add_io_proc_path[50]         = "";
     char add_io_proc_spinesd_addr[50] = "";
     char add_io_proc_id[50]           = "";
     char remove_io_proc_id[50]        = "";
+};
+
+struct Switcher_Response { // this is the message that the proxies send back to the switcher
+    char proxy_ip_addr[16] = "";
 };

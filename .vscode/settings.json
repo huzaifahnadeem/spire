@@ -76,7 +76,8 @@
         "stddll.h": "c",
         "format": "cpp",
         "functional": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "chrono": "cpp"
     },
     "cmake.sourceDirectory": "/Users/huzaifahnadeem/spire/libiec61850/examples/iec61850_client_example2"
 }

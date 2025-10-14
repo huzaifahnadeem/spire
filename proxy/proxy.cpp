@@ -56,10 +56,11 @@ void InputArgs::print_usage() {
         << "You may use the arguments in any order. Specify the argument followed by a space and then the value. e.g. `-c hmi`.\n"
         << "\nIf you want to run with digital twin systems: for the last (optional) -dt argument, provide the name of a named pipe or a text file to read on for the details of the other systems and information about the data collector.\n" 
         << "For this named pipe/file, this program will expect the first line to be: \n"
-        << "`active_system_id`<space>`dataCollectorIPAddr:dataCollectorPort`<space>`switcherIPAddr:switcherPort`\n"
+        << "`active_system_id`<space>`dataCollectorIPAddr:dataCollectorPort`<space>`switcherMultiCastAddr:switcherMultiCastPort`<space>`switcherIPAddr:switcherPort`\n"
         << "active_system_id is a string that is specified for each system (see below).\n"
         << "The next argument in the first line is `dataCollectorIPAddr:dataCollectorPort`. Use this to specify the data collector's IP address and port. If for some reason you do not want to use a data collector you skip this by putting a colon in this argument's place i.e. `:`.\n"
-        << "The next argument in the first line `switcherIPAddr:switcherPort` is used to specify the Multicast IP address and the port that the switcher will be using. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
+        << "The next argument in the first line `switcherMultiCastAddr:switcherMultiCastPort` is used to specify the Multicast IP address and the port that the switcher will be using to send its messages. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
+        << "The next argument in the first line `switcherIPAddr:switcherPort` is used to specify the IP address and the port of the switcher. This proxy will be using these to send a message back to the switcher upon performing the required switching. If, for some reason, you do not need the switcher, put a colon in this argument's place i.e. `:`.\n"
         << "2nd line and onwards are expected to be like: \n"
         << "System_ID /path/to/io_process_to_use SpinesDaemonIPAddr:SpinesDaemonPort\n" 
         << "Use `System_ID` to specify the system's unique ID/label. This will be used refer to the system.\n" 
@@ -136,7 +137,11 @@ void InputArgs::read_named_pipe(std::string pipe_name) {
 
             // switcher mcast address:
             std::string switcher_addr = strtok(NULL, " ");
-            this->pipe_data.switcher_sock_addr = parse_socket_address(switcher_addr);
+            this->pipe_data.switcher_mcast_sock_addr = parse_socket_address(switcher_addr);
+
+            // switcher to-send address:
+            std::string switcher_send_addr = strtok(NULL, " ");
+            this->pipe_data.switcher_to_send_sock_addr = parse_socket_address(switcher_send_addr);
         }
         else {
             SystemsData this_systems_data;
@@ -732,7 +737,7 @@ void temp_measure_switch_time(std::string proxy_output) {
 
 SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pthread_t &thread) {
     // check if there is a switcher in the system (if switcher addr is set to default vals then assume no)
-    if (args.pipe_data.switcher_sock_addr.ip_addr == "" && args.pipe_data.switcher_sock_addr.port == -1) {
+    if (args.pipe_data.switcher_mcast_sock_addr.ip_addr == "" && args.pipe_data.switcher_mcast_sock_addr.port == -1) {
         this->no_switcher = true;
         return;
     }
@@ -740,9 +745,11 @@ SwitcherManager::SwitcherManager(InputArgs args, IOProcManager * io_proc_man, pt
         this->no_switcher = false;
     }
 
-    this->mcast_addr = args.pipe_data.switcher_sock_addr;
+    this->mcast_addr = args.pipe_data.switcher_mcast_sock_addr;
     this->spinesd_addr = args.spinesd_sock_addr;
     this->io_proc_manager = io_proc_man;
+    this->switcher_send_addr = args.pipe_data.switcher_to_send_sock_addr;
+    this->this_proxy_ipaddr = args.spinesd_sock_addr.ip_addr;
     this->setup_switcher_socket();
     // pthread_create(&thread, NULL, &SwitcherManager::init_events_handler, (void *)this);
     SwitcherManager::init_events_handler((void *)this);
@@ -755,8 +762,8 @@ void SwitcherManager::setup_switcher_socket() {
     int retry_wait_sec = 2;
     int proto = SPINES_PRIORITY; // note that even though the option are `SPINES_RELIABLE` and `SPINES_PRIORITY`. Only `SPINES_PRIORITY` is compatible with mcast. the other one wont work
     while (true) {
-        this->switcher_socket = Spines_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, proto, this->mcast_addr.port);
-        if (this->switcher_socket < 0 ) {
+        this->switcher_mcast_socket = Spines_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, proto, this->mcast_addr.port);
+        if (this->switcher_mcast_socket < 0 ) {
             std::cout << "Error setting the socket for the switcher. Trying again in " << retry_wait_sec << "sec\n";
             // temp_measure_switch_time("Error setting the socket for the switcher. Trying again in ...");
             sleep(retry_wait_sec);
@@ -767,12 +774,39 @@ void SwitcherManager::setup_switcher_socket() {
     }
     this->mcast_membership.imr_multiaddr.s_addr = inet_addr(this->mcast_addr.ip_addr.c_str());
     this->mcast_membership.imr_interface.s_addr = htonl(INADDR_ANY);
-    if(spines_setsockopt(this->switcher_socket, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&this->mcast_membership, sizeof(this->mcast_membership)) < 0) {
+    if(spines_setsockopt(this->switcher_mcast_socket, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&this->mcast_membership, sizeof(this->mcast_membership)) < 0) {
         std::cout << "Mcast: problem in setsockopt to join multicast address";
         // temp_measure_switch_time("Mcast: problem in setsockopt to join multicast address");
       }
     std::cout << "Mcast setup done\n";
     // temp_measure_switch_time("Mcast setup done");
+
+
+
+    // set up the switcher to-send socket.
+    if (this->switcher_send_addr == "" && this->switcher_send_addr.port == -1) {
+        this->switcher_to_send_socket = -1;
+    }
+    else {
+        int spines_timeout = 2; // Setup the spines timeout frequency - if disconnected, will try to reconnect this often
+        
+        this->switcher_sockaddr_in.sin_family = AF_INET;
+        this->switcher_sockaddr_in.sin_port = htons(this->switcher_send_addr.port);
+        this->switcher_sockaddr_in.sin_addr.s_addr = inet_addr(this->switcher_send_addr.ip_addr.c_str());
+
+        this->switcher_to_send_socket = -1; // -1 is not a real socket so init to that
+        while (true) {   
+            this->switcher_to_send_socket = Spines_SendOnly_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, SPINES_RELIABLE);
+            if (this->switcher_to_send_socket < 0) {
+                std::cout << "SwitcherManager: Unable to connect to Spines, trying again soon\n";
+                sleep(spines_timeout);
+            }
+            else {
+                std::cout << "SwitcherManager: Connected to Spines\n";
+                break;
+            }
+        }
+    }
 }
 void* SwitcherManager::init_events_handler(void* arg) {
     SwitcherManager* this_class_object = (SwitcherManager*) arg;
@@ -781,7 +815,7 @@ void* SwitcherManager::init_events_handler(void* arg) {
 
     // for E_attach_fd, we need a static member function. That adds some extra work (basically need to pass a refence to a specific class object which in this case since there is only one object of this class, 'this' should work just fine). See IOProcManager::start_io_proc for more details on a similar case
     // temp_measure_switch_time("SwitcherManager::init_events_handler: before E_attach_fd");
-    E_attach_fd(this_class_object->switcher_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, MEDIUM_PRIORITY);
+    E_attach_fd(this_class_object->switcher_mcast_socket, READ_FD, SwitcherManager::handle_switcher_message, 0, (void *)this_class_object, MEDIUM_PRIORITY);
     // temp_measure_switch_time("SwitcherManager::init_events_handler: after E_attach_fd");
     return NULL;
 }
@@ -851,6 +885,18 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     }
     // TODO: forward received messages to the DC
     temp_measure_switch_time("SwitcherManager::handle_switcher_message: about to return.");
+    
+    // send a message to the switcher to let it know you have processed its message
+    if (this_class_object->switcher_to_send_socket != 1) {
+        int sw_ret;
+        std::cout << "Sending a response back to the switcher\n";
+        
+        Switcher_Response data_packet;
+        data_packet.proxy_ip_addr = this_class_object->this_proxy_ipaddr;
+
+        sw_ret = spines_sendto(this_class_object->switcher_to_send_socket, (void *)&data_packet, sizeof(Switcher_Response), 0, (struct sockaddr *)&this_class_object->switcher_sockaddr_in, sizeof(struct sockaddr));
+        std::cout << "Done sending a response back to the switcher with return code ret = " << sw_ret << "\n";
+    }
     return;
 }
 
@@ -927,95 +973,3 @@ int string_to_protocol(char * prot) {
     return p_n;
 
 }
-
-
-// // used by my_Spines_Sock (defined right below this fn)
-// int my_Spines_SendOnly_Sock(const char *sp_addr, int sp_port, int proto) 
-// {
-//     int sk, ret, protocol;
-//     struct sockaddr_in spines_addr;
-//     struct sockaddr_un spines_uaddr;
-//     int16u prio, kpaths;
-//     spines_nettime exp;
-
-//     memset(&spines_addr, 0, sizeof(spines_addr));
-
-//     printf("Initiating Spines connection: %s:%d\n", sp_addr, sp_port);
-//     spines_addr.sin_family = AF_INET;
-//     spines_addr.sin_port   = htons(sp_port);
-//     spines_addr.sin_addr.s_addr = inet_addr(sp_addr);
-
-//     spines_uaddr.sun_family = AF_UNIX;
-//     sprintf(spines_uaddr.sun_path, "%s%d", "/tmp/spines", sp_port);
-
-//     protocol = 8 | (proto << 8);
-
-//     /* printf("Creating IPC spines_socket\n");
-//     sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr); */
-   
-//     if ((int)inet_addr(sp_addr) == My_IP) {
-//         printf("Creating default spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr);
-//     }
-//     else {
-//         printf("Creating inet spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, 
-//                 (struct sockaddr *)&spines_addr);
-//     }
-//     if (sk < 0) {
-//         perror("Spines_Sock: error creating spines socket!");
-//         return sk;
-//     }
-
-//     /* setup kpaths = 1 */
-//     kpaths = 1;
-//     if ((ret = spines_setsockopt(sk, 0, SPINES_DISJOINT_PATHS, (void *)&kpaths, sizeof(int16u))) < 0) {
-//         printf("Spines_Sock: spines_setsockopt failed for disjoint paths = %u\n", kpaths);
-//         return ret;
-//     }
-
-//     /* setup priority level and garbage collection settings for Priority Messaging */
-//     prio = SCADA_PRIORITY;
-//     exp.sec  = 5;
-//     exp.usec = 0;
-
-//     if (proto == SPINES_PRIORITY) {
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_EXPIRATION, (void *)&exp, sizeof(spines_nettime))) < 0) {
-//             printf("Spines_Sock: error setting expiration time to %u sec %u usec\n", exp.sec, exp.usec);
-//             return ret;
-//         }
-
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_PRIORITY, (void *)&prio, sizeof(int16u))) < 0) {
-//             printf("Spines_Sock: error setting priority to %u\n", prio);
-//             return ret;
-//         }
-//     }
-
-//     return sk;
-// }
-
-// // the `Spines_Sock` function from net_wrapper.c uses some spire-specific macro defines (SPINES_INT_PORT & SPINES_EXT_PORT) and i would need to make some changes there or somewhere else to allow having a management network. so i adapt the function here
-// int my_Spines_Sock(const char *sp_addr, int sp_port, int proto, int my_port) 
-// {
-//     int sk, ret;
-//     struct sockaddr_in my_addr;
-    
-//     sk = my_Spines_SendOnly_Sock(sp_addr, sp_port, proto);
-//     if (sk < 0) {
-//         perror("Spines_Sock: failure to connect to spines");
-//         return sk;
-//     }
-
-//     memset(&my_addr, 0, sizeof(my_addr));
-//     my_addr.sin_family = AF_INET;
-//     my_addr.sin_addr.s_addr = My_IP;
-//     my_addr.sin_port = htons(my_port);
-
-//     ret = spines_bind(sk, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_in));
-//     if (ret < 0) {
-//         perror("Spines_Sock: bind error!");
-//         return ret;
-//     }
-
-//     return sk;
-// }

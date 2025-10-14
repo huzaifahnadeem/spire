@@ -60,7 +60,8 @@ class InputArgs {
         struct PipeData {
             std::string active_sys_id = "";
             SocketAddress data_collector_sock_addr;
-            SocketAddress switcher_sock_addr;
+            SocketAddress switcher_mcast_sock_addr;
+            SocketAddress switcher_to_send_sock_addr;
             std::vector<SystemsData> systems_data;
         };
 
@@ -204,10 +205,14 @@ class SwitcherManager {
 
         SocketAddress mcast_addr;
         SocketAddress spinesd_addr;
-        int switcher_socket = -1;
+        int switcher_mcast_socket = -1;
         struct ip_mreq mcast_membership;
         IOProcManager * io_proc_manager;
         bool no_switcher = true;
+        int switcher_to_send_socket;
+        SocketAddress switcher_send_addr;
+        sockaddr_in switcher_sockaddr_in;
+        std::string this_proxy_ipaddr;
         
         void setup_switcher_socket();
         static void* init_events_handler(void* arg);

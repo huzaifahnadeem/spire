@@ -16,12 +16,16 @@ extern "C" {
     #include "../spines/libspines/spines_lib.h"
 }
 
+#define SPINES_CONNECT_SEC  2 // for timeout if unable to connect to spines
+#define SPINES_CONNECT_USEC 0
+
 struct Args {
     std::string spinesd_ipaddr;
     int spinesd_port;
     std::string mcast_ipaddr;
     int mcast_port;
     // std::string input_pipe_name;
+    int switcher_msg_recv_port;
 };
 
 struct Spines_Connection {
@@ -37,5 +41,7 @@ struct Proxy_Messages_Thread_Args {
 
 void parse_args(int ac, char **av);
 void* read_input_pipe(void* fn_arg);
-Spines_Connection setup_spines_multicast_socket();
+Spines_Connection setup_spines_multicast_sending_socket();
+void* setup_and_handle_spines_receiving_socket(void* fn_arg);
 void write_into_log(std::string output);
+void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &ipaddr, int &port);
