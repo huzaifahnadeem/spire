@@ -73,7 +73,10 @@
         "algorithm": "cpp",
         "un.h": "c",
         "scada_packets.h": "c",
-        "stddll.h": "c"
+        "stddll.h": "c",
+        "format": "cpp",
+        "functional": "cpp",
+        "thread": "cpp"
     },
     "cmake.sourceDirectory": "/Users/huzaifahnadeem/spire/libiec61850/examples/iec61850_client_example2"
 }

@@ -9,12 +9,9 @@ extern "C" {
 }
 
 Args args;
-std::queue <Switcher_Message> pending_messages;
 const int Switcher_Message_max_size = MAX_SPINES_CLIENT_MSG; // TODO: put this somewhere common to the proxies and the switcher? MAX_SPINES_CLIENT_MSG = 50000 bytes
 
 Spines_Connection* spines_connection_global = NULL;
-
-// void write_into_log(std::string output);
 
 int main(int ac, char **av) {
     parse_args(ac, av);
@@ -41,11 +38,11 @@ int main(int ac, char **av) {
 
 void parse_args(int argc, char **argv) {
     std::stringstream usage_stream;
-    usage_stream << "Usage: ./switcher spinesIP:port mcastIP:port input_pipe_name\n";
+    usage_stream << "Usage: ./switcher spinesIP:port mcastIP:port\n";
     std::string usage = usage_stream.str();
 
 
-    int expected_argc = 4;
+    int expected_argc = 3;
     if (argc != expected_argc) {
         std::cout << usage;
         exit(EXIT_FAILURE);
@@ -68,9 +65,6 @@ void parse_args(int argc, char **argv) {
     int mcast_port = std::stoi(mcast_arg.substr(colon_pos + 1));
     args.mcast_ipaddr = mcast_ipaddr;
     args.mcast_port = mcast_port;
-
-    // input pipe name arg:
-    args.input_pipe_name = argv[3];
 }
 
 void* read_input_pipe(void* fn_arg) {
@@ -122,105 +116,19 @@ void* read_input_pipe(void* fn_arg) {
             std::cout << "Error: Spines sendto ret != num_bytes\n";
         }
         else {
-            std::cout << "Messages passed to spines successfully.\n";
-            // auto now = std::chrono::high_resolution_clock::now();
-            // auto duration_since_epoch = now.time_since_epoch();
-            // std::chrono::nanoseconds ns = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch);
-            // std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(duration_since_epoch);
-            // std::stringstream output;
-            // output << "Messages passed to spines successfully. [Timestamp: " << ns.count() << "ns. " << us.count() << "µs." << "]\n";
-            // std::cout << output.str();
-            // write_into_log(output.str());
+            auto now = std::chrono::high_resolution_clock::now();
+            auto duration_since_epoch = now.time_since_epoch();
+            std::chrono::nanoseconds ns = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch);
+            std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(duration_since_epoch);
+            std::stringstream output;
+            output << "Messages passed to spines successfully. [Timestamp: " << ns.count() << "ns. " << us.count() << "µs." << "]\n";
+            std::cout << output.str();
+            write_into_log(output.str());
         }
     }
 
-    
-    // int retry_wait_time_sec = 2; // if we cant access the file (e.g. if it doesnt exist, then wait for this many seconds before attempting again)
-
-    // // read the input pipe if there is something to read. if not, wait for something.
-    // while (true) {
-    //     std::ifstream pipe_file(args.input_pipe_name);
-    //     if(pipe_file.fail()) {
-    //         std::cout << "Unable to access the file \"" << args.input_pipe_name << "\". Trying again in " << retry_wait_time_sec << " seconds\n";
-    //         sleep(retry_wait_time_sec);
-    //     }
-    //     else {
-    //         break;
-    //     }
-    // }
-
-    // // create the message based on what was read on the input pipe
-    // Switcher_Message message_to_send;
-    // pending_messages.push(message_to_send);
-
     return NULL;
 }
-
-// // the `Spines_Mcast_SendOnly_Sock` function from net_wrapper.c uses some spire-specific macro defines (SPINES_INT_PORT & SPINES_EXT_PORT) and i would need to make some changes there or somewhere else to allow having a management network. so i adapt the function here
-// int my_Spines_Mcast_SendOnly_Sock(const char *sp_addr, int sp_port, int proto) 
-// {
-//     int sk, ret, protocol;
-//     struct sockaddr_in spines_addr;
-//     struct sockaddr_un spines_uaddr;
-//     int16u prio, kpaths;
-//     spines_nettime exp;
-
-//     memset(&spines_addr, 0, sizeof(spines_addr));
-
-//     printf("Initiating Spines connection: %s:%d\n", sp_addr, sp_port);
-//     spines_addr.sin_family = AF_INET;
-//     spines_addr.sin_port   = htons(sp_port);
-//     spines_addr.sin_addr.s_addr = inet_addr(sp_addr);
-
-//     spines_uaddr.sun_family = AF_UNIX;
-//     sprintf(spines_uaddr.sun_path, "%s%d", "/tmp/spines", sp_port);
-
-//     protocol = 8 | (proto << 8);
-
-//     /* printf("Creating IPC spines_socket\n");
-//     sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr); */
-   
-//     if ((int)inet_addr(sp_addr) == My_IP) {
-//         printf("Creating default spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, (struct sockaddr *)&spines_uaddr);
-//     }
-//     else {
-//         printf("Creating inet spines_socket\n");
-//         sk = spines_socket(PF_SPINES, SOCK_DGRAM, protocol, 
-//                 (struct sockaddr *)&spines_addr);
-//     }
-//     if (sk < 0) {
-//         perror("Spines_Sock: error creating spines socket!");
-//         return sk;
-//     }
-
-//     /* setup kpaths = 1 */
-//     kpaths = 0;
-//     if ((ret = spines_setsockopt(sk, 0, SPINES_DISJOINT_PATHS, (void *)&kpaths, sizeof(int16u))) < 0) {
-//         printf("Spines_Sock: spines_setsockopt failed for disjoint paths = %u\n", kpaths);
-//         return ret;
-//     }
-
-//     /* setup priority level and garbage collection settings for Priority Messaging */
-//     prio = SCADA_PRIORITY;
-//     exp.sec  = 5;
-//     exp.usec = 0;
-    
-//     if (proto == SPINES_PRIORITY) {
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_EXPIRATION, (void *)&exp, sizeof(spines_nettime))) < 0) {
-//             printf("Spines_Sock: error setting expiration time to %u sec %u usec\n", exp.sec, exp.usec);
-//             return ret;
-//         }
-
-//         if ((ret = spines_setsockopt(sk, 0, SPINES_SET_PRIORITY, (void *)&prio, sizeof(int16u))) < 0) {
-//             printf("Spines_Sock: error setting priority to %u\n", prio);
-//             return ret;
-//         }
-//     }
-
-//     return sk;
-// }
-
 
 Spines_Connection setup_spines_multicast_socket() {
     int proto, socket, reconnect_wait_time_sec, ttl;
@@ -252,28 +160,7 @@ Spines_Connection setup_spines_multicast_socket() {
     return connection;
 }
 
-void* send_pending_messages_to_mcast_group(void* fn_args) {
-    Spines_Connection spines_connection = ((struct Proxy_Messages_Thread_Args*)fn_args)->spines_conn;
-    int ret, num_bytes;
-    while (true) {
-        if (!pending_messages.empty()) {
-            Switcher_Message next_mesage = pending_messages.front();
-            pending_messages.pop();
-            
-            // TODO think about how to use Switcher_Message_max_size here. the proxies need a max length when receiving messages
-            num_bytes = sizeof(Switcher_Message);
-            ret = spines_sendto(spines_connection.socket, (void *)&next_mesage, num_bytes, 0, (struct sockaddr *)&spines_connection.dest, sizeof(struct sockaddr)); 
-            if(ret != num_bytes) {
-                std::cout << "Error: Spines sendto ret != num_bytes\n";
-            }
-            else {
-                std::cout << "Messages passed to spines successfully\n";
-            }
-        }
-    }
-}
-
-// void write_into_log(std::string output) {
+void write_into_log(std::string output) {
     std::string data_file_path = "~/switch_log.txt";
     std::time_t timestamp;
     std::ofstream datafile;

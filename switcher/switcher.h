@@ -7,7 +7,7 @@
 #include <netdb.h> // for struct hostent
 #include <cstring> // for memcpy
 #include <sys/un.h>
-// #include <chrono>
+#include <chrono>
 
 #include "./switcher_packets.h"
 #include "../data_collector/data_collector_packets.h"
@@ -21,7 +21,7 @@ struct Args {
     int spinesd_port;
     std::string mcast_ipaddr;
     int mcast_port;
-    std::string input_pipe_name;
+    // std::string input_pipe_name;
 };
 
 struct Spines_Connection {
@@ -38,4 +38,4 @@ struct Proxy_Messages_Thread_Args {
 void parse_args(int ac, char **av);
 void* read_input_pipe(void* fn_arg);
 Spines_Connection setup_spines_multicast_socket();
-void* send_pending_messages_to_mcast_group(void* fn_args);
+void write_into_log(std::string output);
