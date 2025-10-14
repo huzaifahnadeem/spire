@@ -20,14 +20,15 @@ int main(int ac, char **av) {
     // set up a spines multicast socket
     Spines_Connection spines_connection = setup_spines_multicast_sending_socket();
     spines_connection_global = &spines_connection;
+    
+    // this threads receives messages coming from the proxies (to let the switcher/operator know that it has applied the switch command -- not strictly necessary. also sets up the relavant socket for this)
+    pthread_t handle_proxy_messages_thread;
+    pthread_create(&handle_proxy_messages_thread, NULL, &setup_and_handle_spines_receiving_socket, NULL);
+    sleep(1); // helps with output alignment (otherwise, prev thread's fn's outputs something in the middle of the output of the next thread's fn)
 
     // run a thread that checks for and reads and input coming in on the named input pipe
     pthread_t read_input_pipe_thread;
     pthread_create(&read_input_pipe_thread, NULL, &read_input_pipe, NULL);
-
-    // this threads receives messages coming from the proxies (to let the switcher/operator know that it has applied the switch command -- not strictly necessary. also sets up the relavant socket for this)
-    pthread_t handle_proxy_messages_thread;
-    pthread_create(&handle_proxy_messages_thread, NULL, &setup_and_handle_spines_receiving_socket, NULL);
 
     // wait for the threads before exiting
     pthread_join(read_input_pipe_thread, NULL);
