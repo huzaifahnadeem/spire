@@ -892,7 +892,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         std::cout << "Sending a response back to the switcher\n";
         
         Switcher_Response data_packet;
-        data_packet.proxy_ip_addr = this_class_object->this_proxy_ipaddr;
+        data_packet.proxy_ip_addr = this_class_object->this_proxy_ipaddr.c_str();
 
         sw_ret = spines_sendto(this_class_object->switcher_to_send_socket, (void *)&data_packet, sizeof(Switcher_Response), 0, (struct sockaddr *)&this_class_object->switcher_sockaddr_in, sizeof(struct sockaddr));
         std::cout << "Done sending a response back to the switcher with return code ret = " << sw_ret << "\n";
