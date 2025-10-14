@@ -254,11 +254,14 @@ void sockaddr_in_to_str(struct sockaddr_in *sa, socklen_t *sa_len, std::string &
 }
 
 void write_into_log(std::string output) {
-    std::string data_file_path = "~/switch_log.txt";
-    std::time_t timestamp;
+    std::string data_file_path = "./switch_log.txt";
     std::ofstream datafile;
 
-    datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    if (std::filesystem::exists(data_file_path)) {
+        datafile.open(data_file_path.c_str(), std::ios_base::app); // open in append mode
+    } else {
+        datafile.open(data_file_path.c_str(), std::ios_base::out); // creates new file (append mode does not)
+    }
     
     if (datafile.is_open()) {
         datafile << "=== New Entry ===\n";

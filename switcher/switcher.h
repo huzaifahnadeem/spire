@@ -8,6 +8,7 @@
 #include <cstring> // for memcpy
 #include <sys/un.h>
 #include <chrono>
+#include <filesystem>
 
 #include "./switcher_packets.h"
 #include "../data_collector/data_collector_packets.h"

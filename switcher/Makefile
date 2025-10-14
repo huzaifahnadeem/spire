@@ -1,7 +1,7 @@
 CC            = gcc
 CXX           = g++
 LINK          = g++
-CXXFLAGS      += -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
+CXXFLAGS      += -std=c++17 -m64 -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
 
 SPIRE         = ../
 SPINES        = $(SPIRE)/spines
