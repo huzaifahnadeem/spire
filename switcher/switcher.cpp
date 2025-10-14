@@ -97,7 +97,7 @@ void* read_input_pipe(void* fn_arg) {
         // message_to_send.add_io_proc_path = (input == "."? empty: input.c_str());
         strcpy(message_to_send.add_io_proc_path, (input == "."? empty: input.c_str()));
         
-        std::cout << "\nadd_io_proc_spinesd_addr: ";
+        std::cout << "\nadd_io_proc_spinesd_addr: "; // TODO fix this. this is port only not the whole ip addr
         std::cin >> input;
         // message_to_send.add_io_proc_spinesd_addr = (input == "."? empty: input.c_str());
         strcpy(message_to_send.add_io_proc_spinesd_addr, (input == "."? empty: input.c_str()));
