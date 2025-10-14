@@ -42,7 +42,7 @@ void parse_args(int argc, char **argv) {
     std::string usage = usage_stream.str();
 
 
-    int expected_argc = 3;
+    int expected_argc = 4;
     if (argc != expected_argc) {
         std::cout << usage;
         exit(EXIT_FAILURE);
