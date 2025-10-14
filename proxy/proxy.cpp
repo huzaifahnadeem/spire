@@ -864,6 +864,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             SocketAddress new_io_proc_spinesd_addr = parse_socket_address(message->add_io_proc_spinesd_addr);
             new_io_proc_spinesd_addr.ip_addr = this_class_object->spinesd_addr.ip_addr; // TODO: fix this. this is temp only. rn the message is v simple and it should have more fields to have separate address etc for each proxy etc. rn only port is used from the message and same ip addr as local spinesd is used
             this_class_object->io_proc_manager->add_io_proc(new_io_proc_id, message->add_io_proc_path, new_io_proc_spinesd_addr);
+            this_class_object->io_proc_manager->start_io_proc(new_io_proc_id);
             std::cout << "Switcher Message Handler: added a new I/O process. ID=" << new_io_proc_id << ", binary path=" << message->add_io_proc_path << "\n";  
             temp_measure_switch_time("Switcher Message Handler: added a new I/O process...");
         }
