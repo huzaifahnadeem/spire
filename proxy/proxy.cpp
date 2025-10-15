@@ -432,7 +432,8 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
     strncpy(data_packet.sys_id, sys_id.c_str(), char_arr_size - 1);
     data_packet.sys_id[char_arr_size - 1] = '\0';
     
-    data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int) + data_packet.sys_id.size();
+    // data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int) + data_packet.sys_id.size();
+    data_packet.nbytes_struct = sizeof(DataCollectorPacket) + msg->len + 3*sizeof(int) + sizeof(char[char_arr_size]);
 
     ret = spines_sendto(this->spinesd_socket, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&this->dc_sockaddr_in, sizeof(struct sockaddr));
     std::cout << "Sent to data collector with return code ret = " << ret << "\n";
