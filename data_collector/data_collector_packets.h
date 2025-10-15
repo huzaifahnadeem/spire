@@ -15,6 +15,6 @@ struct DataCollectorPacket {
     int data_stream;
     int nbytes_mess;
     int nbytes_struct;
-    std::string sys_id; // used to specify the sys if for RTU_PROXY_MAIN_MSG, RTU_PROXY_SHADOW_MSG, HMI_PROXY_MAIN_MSG, HMI_PROXY_SHADOW_MSG. empty for the rest.
+    char sys_id[20]     = ""; // used to specify the sys if for RTU_PROXY_MAIN_MSG, RTU_PROXY_SHADOW_MSG, HMI_PROXY_MAIN_MSG, HMI_PROXY_SHADOW_MSG. "hmi" or ""rtu-plc" otherwise
     signed_message system_message;
 };

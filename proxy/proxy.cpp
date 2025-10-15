@@ -4,6 +4,7 @@
 #include <fstream> // for file operations
 #include <chrono> // for time
 #include <ctime> // for time
+#include <iomanip>
 
 int main(int ac, char **av) {
     E_init(); // initialize libspread events handler
@@ -234,9 +235,9 @@ void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
     }
     else if(io_proc.pid == 0) { 
         // only child proc will run this. parent process will move on to to the very next line of code (which is going back to the start of the loop or finishing running the function).
-        std::cout << "The child process' pid is: " << getpid() << "\n";
+        std::cout << std::setw(20) << "The child process' pid is: " << getpid() << "\n";
         if (execv(child_proc_cmd[0], child_proc_cmd) < 0) {
-            std::cout << "Error in starting the process. errorno = "<< errno << "\n";
+            std::cout << std::setw(20) << "Error in starting the process. errorno = "<< errno << "\n";
             exit(EXIT_FAILURE); // exit child
         }
     }
@@ -244,7 +245,7 @@ void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
 void IOProcManager::kill_io_proc(std::string id) {
     // ignore if the active system is requested to be killed
     if (id == this->get_active_sys_id()) {
-        std::cout << "IOProcManager::kill_io_proc: ignoring request to kill the active io process\n";
+        std::cout << std::setw(20) << "IOProcManager::kill_io_proc: ignoring request to kill the active io process\n";
         return;
     }
     // kills the process and lets the event handler know it should no longer listen for any messages
@@ -335,7 +336,7 @@ void IOProcManager::update_active_system_id(std::string new_sys_id) {
         this->active_sys_id = new_sys_id;
     } 
     else {
-       std::cout << "Switcher sent an invalid key for the new active system. Sent ID = " << new_sys_id << ". Request was ignored\n";
+       std::cout << std::right << "Switcher sent an invalid key for the new active system. Sent ID = " << new_sys_id << ". Request was ignored\n" << std::left;
     }
 }
 std::string IOProcManager::get_active_sys_id() {
@@ -400,18 +401,18 @@ void DataCollectorManager::setup_spines_socket() {
     while (true) {   
         this->spinesd_socket = Spines_SendOnly_Sock(this->spinesd_sock_addr.ip_addr.c_str(), this->spinesd_sock_addr.port, this->spines_protocol);
         if (this->spinesd_socket < 0) {
-            std::cout << "Data Collector Manager: Unable to connect to Spines, trying again soon\n";
+            std::cout << std::right << "Data Collector Manager: Unable to connect to Spines, trying again soon\n" << std::left;
             sleep(spines_timeout);
         }
         else {
-            std::cout << "Data Collector Manager: Connected to Spines\n";
+            std::cout << std::right << "Data Collector Manager: Connected to Spines\n" << std::left;
             break;
         }
     }
 }
 
 void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id)  {
-    this->send_to_dc(msg, nbytes, data_stream_id, "");
+    this->send_to_dc(msg, nbytes, data_stream_id, "null");
 }
 
 void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id, std::string sys_id) {
@@ -425,7 +426,12 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
     data_packet.data_stream = data_stream_id;
     data_packet.system_message = *msg;
     data_packet.nbytes_mess = nbytes;
-    data_packet.sys_id = sys_id;
+    
+    // data_packet.sys_id = sys_id;
+    int char_arr_size = 20;
+    strncpy(data_packet.sys_id, sys_id.c_str(), char_arr_size - 1);
+    data_packet.sys_id[char_arr_size - 1] = '\0';
+    
     data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int) + data_packet.sys_id.size();
 
     ret = spines_sendto(this->spinesd_socket, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&this->dc_sockaddr_in, sizeof(struct sockaddr));
@@ -670,7 +676,7 @@ void* RTUsPLCsMessageBrokerManager::listen_on_rtus_plcs_sock(void *arg) {
                     this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nBytes);
 
                     // sending to data collector (this is a message that this proxy received from a rtu/plc and it is sending to SMs (via itrc client)):
-                    this_class_object->dc_manager->send_to_dc(mess, nBytes, RTU_PROXY_RTU_DATA);
+                    this_class_object->dc_manager->send_to_dc(mess, nBytes, RTU_PROXY_RTU_DATA, "rtu-plc");
                 }
             }
         }
@@ -798,11 +804,11 @@ void SwitcherManager::setup_switcher_socket() {
         while (true) {   
             this->switcher_to_send_socket = Spines_SendOnly_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, SPINES_RELIABLE);
             if (this->switcher_to_send_socket < 0) {
-                std::cout << "SwitcherManager: Unable to connect to Spines, trying again soon\n";
+                std::cout << std::right << "SwitcherManager: Unable to connect to Spines, trying again soon\n" << std::left;
                 sleep(spines_timeout);
             }
             else {
-                std::cout << "SwitcherManager: Connected to Spines\n";
+                std::cout << std::right << "SwitcherManager: Connected to Spines\n" << std::left;
                 break;
             }
         }
@@ -836,22 +842,22 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     ret = spines_recvfrom(sock, buff, this_class_object->switch_message_max_size, 0, (struct sockaddr *) &from_addr, &from_len);
     // temp_measure_switch_time("SwitcherManager::handle_switcher_message: after spines_recvfrom()");
     if (ret < 0) {
-        std::cout << "Switcher Message Handler: Error receving the message\n";
+        std::cout << std::right << "Switcher Message Handler: Error receving the message\n" << std::left;
         // temp_measure_switch_time("Switcher Message Handler: Error receving the message");
     }
     else {
         if ((unsigned long) ret < sizeof(Switcher_Message)){
-            std::cout << "Switcher Message Handler: Error - The received message is smaller than expected\n";
+            std::cout << std::right << "Switcher Message Handler: Error - The received message is smaller than expected\n" << std::left;
             // temp_measure_switch_time("Switcher Message Handler: Error - The received message is smaller than expected");
             return;
         }
         message = (Switcher_Message*) buff;
-        std::cout << "Switcher Message Handler: Received a message.\n";    
+        std::cout << std::right << "Switcher Message Handler: Received a message.\n" << std::left;    
         // temp_measure_switch_time("Switcher Message Handler: Received a message.");
         // TODO: check that the message has correct values (i.e. ignore if e.g. is asks you to remove an io proc with an id that doesnt exist)
         // ignore if empty message
         if (message->new_active_system_id == "" && message->add_io_proc_path == "" && message->add_io_proc_spinesd_addr == "" && message->add_io_proc_id == "" && message->remove_io_proc_id == "") {
-            std::cout << "Switcher Message Handler: message was empty. Ignored.\n";  
+            std::cout << std::right << "Switcher Message Handler: message was empty. Ignored.\n" << std::left;  
             // temp_measure_switch_time("Switcher Message Handler: message was empty. Ignored.");  
             return;
         }
@@ -865,7 +871,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             new_io_proc_spinesd_addr.ip_addr = this_class_object->spinesd_addr.ip_addr; // TODO: fix this. this is temp only. rn the message is v simple and it should have more fields to have separate address etc for each proxy etc. rn only port is used from the message and same ip addr as local spinesd is used
             this_class_object->io_proc_manager->add_io_proc(new_io_proc_id, message->add_io_proc_path, new_io_proc_spinesd_addr);
             this_class_object->io_proc_manager->start_io_proc(new_io_proc_id);
-            std::cout << "Switcher Message Handler: added a new I/O process. ID=" << new_io_proc_id << ", binary path=" << message->add_io_proc_path << "\n";  
+            std::cout << std::right << "Switcher Message Handler: added a new I/O process. ID=" << new_io_proc_id << ", binary path=" << message->add_io_proc_path << "\n" << std::left;  
             temp_measure_switch_time("Switcher Message Handler: added a new I/O process...");
         }
         
@@ -874,7 +880,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             std::string old_sys_id = this_class_object->io_proc_manager->get_active_sys_id();
             std::string new_id = message->new_active_system_id;
             this_class_object->io_proc_manager->update_active_system_id(new_id);
-            std::cout << "Switcher Message Handler: Updated active system ID from `" << old_sys_id << "` to `" << message->new_active_system_id << "`\n";
+            std::cout << std::right << "Switcher Message Handler: Updated active system ID from `" << old_sys_id << "` to `" << message->new_active_system_id << "`\n" << std::left;
             temp_measure_switch_time("Switcher Message Handler: Updated active system ID from ...");
         }
 
@@ -882,7 +888,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         if (strcmp(message->remove_io_proc_id, "") != 0) {
             // this fn ignores the request if removing the currently active io proc:
             this_class_object->io_proc_manager->kill_io_proc(message->remove_io_proc_id);
-            std::cout << "Switcher Message Handler: Killed I/O process with id `" << message->remove_io_proc_id << "`\n";
+            std::cout << std::right << "Switcher Message Handler: Killed I/O process with id `" << message->remove_io_proc_id << "`\n" << std::left;
             temp_measure_switch_time("Switcher Message Handler: Killed I/O process with id ...");
         }
     }
@@ -892,7 +898,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
     // send a message to the switcher to let it know you have processed its message
     if (this_class_object->switcher_to_send_socket != 1) {
         int sw_ret;
-        std::cout << "Sending a response back to the switcher\n";
+        std::cout << std::right << "Sending a response back to the switcher\n" << std::left;
         
         Switcher_Response data_packet;
         int char_arr_size = 16;
@@ -901,7 +907,7 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         data_packet.proxy_ip_addr[char_arr_size - 1] = '\0';
 
         sw_ret = spines_sendto(this_class_object->switcher_to_send_socket, (void *)&data_packet, sizeof(Switcher_Response), 0, (struct sockaddr *)&this_class_object->switcher_sockaddr_in, sizeof(struct sockaddr));
-        std::cout << "Done sending a response back to the switcher with return code ret = " << sw_ret << "\n";
+        std::cout << std::right << "Done sending a response back to the switcher with return code ret = " << sw_ret << "\n" << std::left;
     }
     return;
 }
@@ -946,7 +952,7 @@ void HMIManager::listen_on_hmi_sock(int sock, int code, void *data) {
         
         this_class_object->io_proc_manager->send_msg_to_all_procs(mess, nbytes);
 
-        this_class_object->dc_manager->send_to_dc(mess, nbytes, HMI_PROXY_HMI_CMD);
+        this_class_object->dc_manager->send_to_dc(mess, nbytes, HMI_PROXY_HMI_CMD, "hmi");
     }
 }
 int HMIManager::send(signed_message* mess, int nbytes) {

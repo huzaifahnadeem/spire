@@ -69,14 +69,24 @@ int main(int ac, char **av) {
                     t = &spines_timeout; 
                     continue;
                 }
-                std::cout << "data_collector: Received some data from spines daemon\n";
+                
+                // TODO: remove these if statements -- temporarily stopped the data collector from writing the HMI_UPDATE/RTU_DATA messages for the demo (there's too many of these messages)
+                bool go_ahead_w_writing = true;
+                if (((DataCollectorPacket *)buff)->system_message.type == HMI_UPDATE)
+                    go_ahead_w_writing = false;
+                if (((DataCollectorPacket *)buff)->system_message.type == RTU_DATA)
+                    go_ahead_w_writing = false;
+                if (go_ahead_w_writing) {
+                    std::cout << "data_collector: Received some data from spines daemon\n";
 
-                std::string sender_ipaddr;
-                int sender_port;
-                sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
-                // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
-                write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
-                std::cout << "data_collector: Data has been written to disk\n";
+                    std::string sender_ipaddr;
+                    int sender_port;
+                    sockaddr_in_to_str(&sender_addr, &sender_addr_structlen, sender_ipaddr, sender_port);
+
+                    // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
+                    write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
+                    std::cout << "data_collector: Data has been written to disk\n";
+                }
             }
         }
         else {
@@ -169,12 +179,6 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
     // note that log_files_dir can have whatever file extension. It doesnt matter. We are writing a text file that can be interpretted as a yaml file (and yaml files are easier to read for humans too so should also serve as a decent text file)
     std::string system_id = data_packet->sys_id;
     signed_message *data = &data_packet->system_message;
-    
-    // TODO: remove this -- temporarily stopped the data collector from writing the HMI_UPDATE/RTU_DATA messages for the demo (there's too many of these messages)
-    if (data->type == HMI_UPDATE)
-        return;
-    if (data->type == RTU_DATA)
-        return;
 
     std::ofstream datafile;
     datafile.open(log_file_path.c_str(), std::ios_base::app); // open in append mode
@@ -411,13 +415,14 @@ std::string get_yaml_indentation() {
 
 // for data collector packets (from proxies)
 void write_data(std::string log_files_dir, struct DataCollectorPacket * data_packet, std::string sender_ipaddr, int sender_port) {
+
     std::string ind = get_yaml_indentation();
     
     std::chrono::system_clock::rep microsec_since_epoch;
     std::string timestamp;
     gen_timestamps(microsec_since_epoch, timestamp);
     
-    std::string file_name;
+    std::string file_name = "null";
     get_log_filename(file_name, data_packet->sys_id, microsec_since_epoch);
     
     write_sys_data_yaml((log_files_dir + file_name), data_packet, sender_ipaddr, sender_port, ind, microsec_since_epoch, timestamp);
