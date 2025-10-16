@@ -151,7 +151,7 @@ void apply_attack(char * attack_instr) {
         o_fake.event_idx = 99;
         o_fake.event_tot = 99;
         o_fake.ord_num = 99;
-        stddll_push_back(&ord_queue, &o_fake)
+        stddll_push_back(&ord_queue, &o_fake);
 
         int nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
         IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote); // send to spines_comm_handler to send to the clients

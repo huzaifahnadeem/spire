@@ -2,6 +2,7 @@ import sys, os
 import yaml
 import threading
 import time
+from random import shuffle
 from queue import Queue
 from queue import Empty as queue_is_empty
 from watchdog.observers import Observer
@@ -17,7 +18,8 @@ not_yet_matched_entries = {} # key= filenames. val= list of tuple: (timestamp, e
 
 def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "./data_collector_logs"
-    
+    print("Initialize log analysis")
+
     event_handler = myHandler(path)
     observer = Observer()
     observer.schedule(event_handler, path, recursive=False)
@@ -36,7 +38,7 @@ def main():
     data_proc_thr.join()
 
 def process_entries():
-    last_periodic_check_ts = time.time()
+    entries_all_queues_keys = []
     while True:
         try:
             # the first part checks: for each file, check if there are unmatched entries for other files and if there are some, compare timestamps and alert if the delta is too much
@@ -44,6 +46,7 @@ def process_entries():
 
             # first part:
             entries_all_queues_keys = [k for k in entries_all_queues.keys()] # due to threading we can get 'RuntimeError: dictionary changed size during iteration' error. so cant use entries_all_queues.keys() directly in the following for loop
+            shuffle(entries_all_queues_keys) # otherwise you keep on blocking for the same filename
             for filename in entries_all_queues_keys:
                 if "hmi_" in filename: # ignore hmi data file.. not processing that for now
                     continue
@@ -65,6 +68,8 @@ def process_entries():
                         not_yet_matched_entries[f] = []
                     if f == filename: # dont go through this files own entries -- need to compare to other files' entries
                         continue
+                    if "hmi_" in f: # ignore hmi data file.. not processing that for now
+                        continue
                     
                     pop_indices = []
                     for i, (this_ts, this_entry) in enumerate(not_yet_matched_entries[f]):
@@ -75,6 +80,7 @@ def process_entries():
                                 # print(f"Matching entry within TIME_DELTA_OK between {f} and {filename}")
                                 print(".", end='')
                             else:
+                                # pass
                                 print(f"\nALERT: TIME_DELTA_OK exceeded for an entry between {f} and {filename}")
                     for i in pop_indices: # remove the matching entries
                         not_yet_matched_entries[f].pop(i)
