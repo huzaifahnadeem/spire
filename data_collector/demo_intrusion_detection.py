@@ -1,11 +1,14 @@
 import sys, os
 import yaml
 import threading
+import time
 from queue import Queue
+from queue import Empty as queue_is_empty
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-TIME_DELTA_OK = 2   # in seconds
+TIME_DELTA_OK = 1   # in seconds
+PERIODIC_SELF_CHECK = 2 # in seconds
 NEW_ENTRY = '# === New Entry ===\n'
 END_ENTRY = '# === End Entry ===\n'
 
@@ -33,15 +36,20 @@ def main():
     data_proc_thr.join()
 
 def process_entries():
+    last_periodic_check_ts = time.time()
     while True:
         try:
+            # the first part checks: for each file, check if there are unmatched entries for other files and if there are some, compare timestamps and alert if the delta is too much
+            # the second part (under except queue_is_empty) periodically (PERIODIC_SELF_CHECK) goes over each file's own unmatched entries to see if there are any and other files dont have any. this helps with checking if a system tried to send a message that others never go (like a fake message from a compromised server)
+
+            # first part:
             entries_all_queues_keys = [k for k in entries_all_queues.keys()] # due to threading we can get 'RuntimeError: dictionary changed size during iteration' error. so cant use entries_all_queues.keys() directly in the following for loop
             for filename in entries_all_queues_keys:
                 if "hmi_" in filename: # ignore hmi data file.. not processing that for now
                     continue
 
                 q = entries_all_queues[filename]
-                entry: dict = q.get()
+                entry: dict = q.get(block=True, timeout=PERIODIC_SELF_CHECK)
                 curr_time = list(entry.keys())[0] # each entry has a root key which is its timestamp in unix time in microsec
 
                 # entry processing logic:
@@ -51,33 +59,48 @@ def process_entries():
                 #   1) check each entry's timestamp and it current timestamp - that timetamp > TIME_DELTA_OK, alert
                 #   2) if find matching entry within delta, delete the one already in the list and throw this one away TODO: this will only work if we only have two system instances only
                 
+                found_a_matching_entry = False
                 for f in entries_all_queues_keys:
                     if f not in list(not_yet_matched_entries.keys()):
                         not_yet_matched_entries[f] = []
                     if f == filename: # dont go through this files own entries -- need to compare to other files' entries
                         continue
                     
-                    found_a_matching_entry = False
+                    pop_indices = []
                     for i, (this_ts, this_entry) in enumerate(not_yet_matched_entries[f]):
-                        pop_indices = []
                         if entries_are_same(entry, this_entry):
                             found_a_matching_entry = True
                             pop_indices.append(i)
                             if (abs((this_ts - curr_time)/1000000) < TIME_DELTA_OK): # divide by 1000000 to convert microsec to seconds
-                                print(f"Matching entry within TIME_DELTA_OK between {f} and {filename}")
+                                # print(f"Matching entry within TIME_DELTA_OK between {f} and {filename}")
+                                print(".", end='')
                             else:
-                                print(f"ALERT: TIME_DELTA_OK exceeded for an entry between {f} and {filename}")
-                        for i in pop_indices: # remove the matching entries
-                            not_yet_matched_entries[f].pop(i)
+                                print(f"\nALERT: TIME_DELTA_OK exceeded for an entry between {f} and {filename}")
+                    for i in pop_indices: # remove the matching entries
+                        not_yet_matched_entries[f].pop(i)
                     
-                    if not found_a_matching_entry: # then put it in your own list
-                        not_yet_matched_entries[filename].append((curr_time, entry))
+                if not found_a_matching_entry: # then put it in your own list
+                    not_yet_matched_entries[filename].append((curr_time, entry))
 
                 q.task_done()
+            
+            
+        except queue_is_empty: # runs after each queue.get()'s timeout (set to PERIODIC_SELF_CHECK)
+            # second part:
+            for filename in entries_all_queues_keys:
+                    if filename not in list(not_yet_matched_entries.keys()): # dont give a warning about nonexistent keys. just init with that key if needed
+                        not_yet_matched_entries[filename] = []
+                    
+                    if not_yet_matched_entries[filename] != []: # i.e. the is an unmatched entry and its been too long
+                        ts = not_yet_matched_entries[filename][0][0]
+                        print(f"\nALERT: During periodic check, {filename} was found to have unmatched entry - timestamp: {not_yet_matched_entries[filename][0][1][ts]['Timestamp']}, type: {not_yet_matched_entries[filename][0][1][ts]['data']['type_(enum_str)']}")
+                        not_yet_matched_entries[filename] = [] # reset so that this script doesnt keep on printing the prev line over and over again
+
         except Exception as e:
-            print(e)
+            print(f"Exception: {e}")
 
 def entries_are_same(entry1, entry2) -> bool:
+    # TODO: develop this later. rn we are only interested in same kinds of messages just apart in time or non existent on one of the instances. in the future we can have more sophisticated analysis potentially based on entry content too
     are_same = True
     return are_same
 
