@@ -801,9 +801,10 @@ void SwitcherManager::setup_switcher_socket() {
         this->switcher_sockaddr_in.sin_port = htons(this->switcher_send_addr.port);
         this->switcher_sockaddr_in.sin_addr.s_addr = inet_addr(this->switcher_send_addr.ip_addr.c_str());
 
+        int spines_protocol = SPINES_PRIORITY; // SPINES_RELIABLE is the other option. Note that, switcher sends its message over mcase which only supports SPINES_PRIORITY. So to make it match that, i am currently using SPINES_PRIORITY here too
         this->switcher_to_send_socket = -1; // -1 is not a real socket so init to that
         while (true) {   
-            this->switcher_to_send_socket = Spines_SendOnly_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, SPINES_RELIABLE);
+            this->switcher_to_send_socket = Spines_SendOnly_Sock(this->spinesd_addr.ip_addr.c_str(), this->spinesd_addr.port, spines_protocol);
             if (this->switcher_to_send_socket < 0) {
                 std::cout << std::right << "SwitcherManager: Unable to connect to Spines, trying again soon\n" << std::left;
                 sleep(spines_timeout);
