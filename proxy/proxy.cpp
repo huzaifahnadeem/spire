@@ -863,6 +863,12 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
             // temp_measure_switch_time("Switcher Message Handler: message was empty. Ignored.");  
             return;
         }
+        
+        // check if this message has a larger timestamp than what you have processed previously.
+        if (message->timestamp <= this_class_object->last_processed_switcher_msg_ts) {
+            // if this message is older than what you have processed already, ignore it.
+            return;
+        }
 
         // add a new io proc, if message has that info:
         // int ans = strcmp(str1, str2, ans); ans = 0 if str1==str.
@@ -911,6 +917,8 @@ void SwitcherManager::handle_switcher_message(int sock, int code, void* data) {
         sw_ret = spines_sendto(this_class_object->switcher_to_send_socket, (void *)&data_packet, sizeof(Switcher_Response), 0, (struct sockaddr *)&this_class_object->switcher_sockaddr_in, sizeof(struct sockaddr));
         std::cout << std::right << "Done sending a response back to the switcher with return code ret = " << sw_ret << "\n" << std::left;
     }
+
+    this_class_object->last_processed_switcher_msg_ts = message->timestamp; // update the local record of what's the largest ts for the switcher message was (that you processed)
     return;
 }
 

@@ -114,16 +114,18 @@ void* read_input_pipe(void* fn_arg) {
 
         // pending_messages.push(message_to_send); // having a queue will be useful when we are reading inputs from a file/pipe as it will help avoid thread sync issues.
 
+        auto now = std::chrono::high_resolution_clock::now();
+        auto duration_since_epoch = now.time_since_epoch();
+        std::chrono::nanoseconds ns = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch);
+        std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(duration_since_epoch);
+        message_to_send.timestamp = us.count();
+
         int num_bytes = sizeof(Switcher_Message);
         int ret = spines_sendto(spines_connection_global->socket, (void *)&message_to_send, num_bytes, 0, (struct sockaddr *)&(spines_connection_global->dest), sizeof(struct sockaddr)); 
         if(ret != num_bytes) {
             std::cout << "Error: Spines sendto ret != num_bytes\n";
         }
         else {
-            auto now = std::chrono::high_resolution_clock::now();
-            auto duration_since_epoch = now.time_since_epoch();
-            std::chrono::nanoseconds ns = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch);
-            std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(duration_since_epoch);
             std::stringstream output;
             output << "Messages passed to spines successfully. [Timestamp: " << ns.count() << "ns. " << us.count() << "µs." << "]\n";
             std::cout << output.str();

@@ -13,6 +13,7 @@ struct Switcher_Message { // this is the message that the switcher sends to the 
     char add_io_proc_spinesd_addr[50] = "";
     char add_io_proc_id[50]           = "";
     char remove_io_proc_id[50]        = "";
+    unsigned long long timestamp; // unix time in microseconds
 };
 
 struct Switcher_Response { // this is the message that the proxies send back to the switcher

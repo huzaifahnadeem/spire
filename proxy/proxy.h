@@ -213,6 +213,8 @@ class SwitcherManager {
         SocketAddress switcher_send_addr;
         sockaddr_in switcher_sockaddr_in;
         std::string this_proxy_ipaddr;
+
+        unsigned long long last_processed_switcher_msg_ts = 0;
         
         void setup_switcher_socket();
         static void* init_events_handler(void* arg);
