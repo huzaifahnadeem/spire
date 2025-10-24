@@ -70,7 +70,7 @@
 
 // for SM compromise demo
 #ifndef COMPROMISE_DEMO
-#define COMPROMISE_DEMO 1
+#define COMPROMISE_DEMO 0
 #endif
 
 // These are the stages used for state collection
