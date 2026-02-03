@@ -1,3 +1,5 @@
+// TODO: since for Ovation, we will make the modbus client at the proxy poll at a v high rate, this io process will receive all those poll messages and should only forward a subset of those as spire expects (basically do not want to flood it)
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
