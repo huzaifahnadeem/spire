@@ -54,7 +54,7 @@ void poll() {
 
     for (int r = 0; r < num_rows; r++) {
         if (r == 0) { // then print heading
-            std::cout << " Input Status bits \t Coils \t\t Holding Registers\n";
+            std::cout << " Input Status bits \t Coils \t\t\t Holding Registers\n";
         }
         // input bits
         if (!read_fail_inputbits && r < NUM_BREAKER)
