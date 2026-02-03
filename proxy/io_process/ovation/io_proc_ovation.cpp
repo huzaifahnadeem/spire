@@ -32,7 +32,7 @@
 namespace system_ns {
     extern "C" {
         #include "common/net_wrapper.h"  
-        // #include "common/def.h"       // x   
+        #include "common/def.h"
         #include "common/itrc.h"         
         // #include "prime/libspread-util/include/spu_events.h" // x 
         // #include "prime/stdutil/include/stdutil/stdcarr.h" // x
@@ -75,7 +75,7 @@ void * modbus_tcp_server_loop(void * arg) {
     // We listen on all interfaces ("0.0.0.0") on port 502 (default Modbus port)
     // Note: using port 502 usually requires root privileges. Change to 1502 or 5020 for non-root testing.
     
-    modbus_t *ctx = modbus_new_tcp(mb_server_ip, mb_server_port);
+    modbus_t *ctx = modbus_new_tcp(mb_server_ip.c_str(), mb_server_port);
 
 
     if (ctx == nullptr) {
@@ -341,12 +341,12 @@ void send_to_parent(system_ns::signed_message * mess)
 }
 
 int update_modbus_mapping(system_ns::signed_message * mess) { // updates the local data struct being used as a cache for the actual PLC's state
-    rtu_data_msg * rtud = (rtu_data_msg *)(mess + 1);
+    system_ns::rtu_data_msg * rtud = (system_ns::rtu_data_msg *)(mess + 1);
     
     // unsigned char data[RTU_DATA_PAYLOAD_LEN];
     // data = rtud.data;
 
-    pnnl_fields * pf =  (pnnl_fields *)(rtud.data);
+    system_ns::pnnl_fields * pf =  (system_ns::pnnl_fields *)(rtud);
     
     for (int i = 0; i < NUM_BREAKER; i++) {
         mb_mapping->tab_bits[i] = pf->breaker_write[i];          // Coil.
