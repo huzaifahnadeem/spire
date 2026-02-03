@@ -1,5 +1,3 @@
-#define TESTING 1
-
 // TODO Ovation: review all the #include statements, probably dont need some of them (like common/itrc.h)
 
 // prior (spire io proc #includes)
@@ -29,7 +27,6 @@
 // for printing hex
 #include <iomanip>
 
-// prior (spire io proc #includes)
 // NOTE: in the Makefile, we have $SPIRE_DIR. Set that to the right spire directory if you do not want to use the default path
 
 namespace system_ns {
@@ -44,47 +41,21 @@ namespace system_ns {
 }
 #define IPC_TO_PARENT_RTUPLCCLIENT "/tmp/ssproxy_ipc_ioproc_to_proxy"
 #define IPC_FROM_PARENT_RTUPLCCLIENT "/tmp/ssproxy_ipc_proxy_to_ioproc"
-// #define IPC_TO_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_ioproc_to_proxy"
-// #define IPC_FROM_PARENT_HMICLIENT "/tmp/hmiproxy_ipc_proxy_to_ioproc"
 
 int HMI_scenario = PNNL;
-// int HMI_scenario = JHU;
 
-#if !(TESTING)
-void parse_args(int ac, char **av, std::string &ovation_ip_addr, int &ovation_port);
-void ovation_setup(std::string ip_addr, int port);
-#endif
+void parse_args(int ac, char **av);
 void setup_ipc_with_parent();
 void send_to_parent(system_ns::signed_message * mess);
-#if !(TESTING)
-void *handler_msg_from_itrc(void *arg);
-void *listen_on_parent_sock(void *arg);
-
-int ioproc_ipc_sock_main_to_itrcthread;
-unsigned int Seq_Num;
-#endif
+void * listen_on_parent_sock(void * arg);
 
 int ipc_sock_to_parent, ipc_sock_from_parent;
 std::string ipc_path_suffix;
-#if !(TESTING)
-int proxy_id_for_itrc = -1; // only used for RTU/PLC clients
-// bool client_is_hmi;
-#endif
+std::string mb_server_ip = "0.0.0.0";
+int mb_server_port = -1;
 
-// void print_hex(const uint8_t* data, int length) {
-//     // Set the stream to hexadecimal format and fill with zeros
-//     std::cout << std::hex << std::setfill('0');
+modbus_mapping_t * mb_mapping;
 
-//     for (size_t i = 0; i < length; ++i) {
-//         // Cast to unsigned int to print as a number (not a character)
-//         // std::setw(2) ensures two characters are used for each byte
-//         std::cout << std::setw(2) << static_cast<unsigned int>(data[i]) << " ";
-//     }
-//     std::cout << std::endl;
-
-//     // Reset stream formatters if needed elsewhere in the program
-//     std::cout << std::dec << std::setfill(' ');
-// }
 std::string uint8_t_array_to_hex_string(const uint8_t* data, size_t length) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0');
@@ -103,8 +74,9 @@ void * modbus_tcp_server_loop(void * arg) {
     // Create a new Modbus TCP context
     // We listen on all interfaces ("0.0.0.0") on port 502 (default Modbus port)
     // Note: using port 502 usually requires root privileges. Change to 1502 or 5020 for non-root testing.
-    int port = 5020;
-    modbus_t *ctx = modbus_new_tcp("0.0.0.0", port);
+    
+    modbus_t *ctx = modbus_new_tcp(mb_server_ip, mb_server_port);
+
 
     if (ctx == nullptr) {
         std::cerr << "Unable to create the libmodbus context" << std::endl;
@@ -118,14 +90,18 @@ void * modbus_tcp_server_loop(void * arg) {
     // We allocate 14 (output) bits, 14 input bits, 16 (output/holding, word) registers, and 0 input (word) registers. Registers are 16 bits in modbus
     int NUM_POINT_ACTUAL = 16; // in PNNL plc, there are actually 16 output registers but only NUM_POINT = 8 are used
     int NUM_INPUT_REGISTERS = 0; // input registers are not used in the pnnl scenario
-    
-    // #if (TESTING)
-    // int NUM_BREAKER = 14;
-    // #endif 
 
-    modbus_mapping_t *mb_mapping = modbus_mapping_new(NUM_BREAKER, NUM_BREAKER, NUM_POINT_ACTUAL, NUM_INPUT_REGISTERS);
+    mb_mapping = modbus_mapping_new(NUM_BREAKER, NUM_BREAKER, NUM_POINT_ACTUAL, NUM_INPUT_REGISTERS); // this is the actual mapping / cache of plc state
+    
+    modbus_mapping_t * dummy_mb_mapping = modbus_mapping_new(NUM_BREAKER, NUM_BREAKER, NUM_POINT_ACTUAL, NUM_INPUT_REGISTERS); // this is used when replying to write messages so that the client gets a response back and doesnt time out and we dont actually update the real mapping until we know that the actual plc has updated its state.
+    
     if (mb_mapping == nullptr) {
         std::cerr << "Failed to allocate the mapping: " << modbus_strerror(errno) << std::endl;
+        modbus_free(ctx);
+        return NULL;
+    }
+    if (dummy_mb_mapping == nullptr) {
+        std::cerr << "Failed to allocate the dummy mapping: " << modbus_strerror(errno) << std::endl;
         modbus_free(ctx);
         return NULL;
     }
@@ -187,7 +163,7 @@ void * modbus_tcp_server_loop(void * arg) {
         return NULL;
     }
     
-    std::cout << "Server listening on port " << port << "..." << std::endl;
+    std::cout << "Server listening on port " << mb_server_port << "..." << std::endl;
 
     // Main Server Loop
     while (true) {
@@ -287,8 +263,10 @@ void * modbus_tcp_server_loop(void * arg) {
                         val                         // = int32_t val
                     );
                     send_to_parent(mess_to_send);
+                    // now, since the modbus client is expecting an ACK reply (it will throw a timeout error otherwise), we send it a reply but do not really update the modbus mapping data structure -- we will use the dummy mapping for this. Hopefully the next time ovation polls, we would have a state matching the plc (after the above send_to_parent mess gets to the plc and we get regular high-freq poll msg from the proxy). 
+                    modbus_reply(ctx, query, query_len, dummy_mb_mapping);
                 }
-                else {
+                else { // for reads:
                     // reads can be directly replied to from here
                     modbus_reply(ctx, query, query_len, mb_mapping);
                 }
@@ -311,117 +289,41 @@ void * modbus_tcp_server_loop(void * arg) {
 }
 
 int main(int ac, char **av) {
-    #if !(TESTING)
     // this kills this process if the parent gets a SIGHUP:
     prctl(PR_SET_PDEATHSIG, SIGHUP); // TODO: this might not be the best way to do this. check the second answer in the following (answer by Schof): https://stackoverflow.com/questions/284325/how-to-make-child-process-die-after-parent-exits/17589555
-    
-    std::string ovation_ip_addr;
-    int ovation_port;
-
-    parse_args(ac, av, ovation_ip_addr, ovation_port); // TODO Ovation: may need to adjust this for ovation
-
-    std::cout << "io_process for ovation (" << ipc_path_suffix << ") starts (with suffix: " + ipc_path_suffix + ")\n";
-    #endif
-    
-    setup_ipc_with_parent();
-    
-    #if !(TESTING)
-    pthread_t parent_listen_thread, handle_msg_from_ovation_thread;
-    
-    ovation_setup(ovation_ip_addr, ovation_port); // TODO Ovation: this is one of the major places where we need to adjust logic. we do not have an ITRC client thread like we used to. Instead there is some other cusom thread that needs to send messages to the Ovation system instance as well as receive messages from it (and potentially forwarding these received messages to a diff function to unwrap it or smth like that. messages are expected to be in modbus protocol).
-
-    pthread_create(&handle_msg_from_ovation_thread, NULL, &handler_msg_from_ovation, NULL); // receives messages from itrc client (ioproc)
-    pthread_create(&parent_listen_thread, NULL, &listen_on_parent_sock, NULL); // listens for command messages coming from the parent proc
-    
-    pthread_join(handle_msg_from_ovation_thread, NULL);
-    pthread_join(parent_listen_thread, NULL);
-
-    return 0;
-
-    #endif
     
     struct timeval now;
     gettimeofday(&now, NULL);
     system_ns::My_Incarnation = now.tv_sec; // happens in itrc init fn in spire io proc
+
+    parse_args(ac, av);
+
+    std::cout << "io_process for ovation (" << ipc_path_suffix << ") starts (with suffix: " + ipc_path_suffix + ")\n";
+    
+    setup_ipc_with_parent();
+    
+    pthread_t parent_listen_thread;
+    pthread_create(&parent_listen_thread, NULL, &listen_on_parent_sock, NULL); // listens for command messages coming from the parent proc
+        
     pthread_t modbus_tcp_server_loop_thread; 
     pthread_create(&modbus_tcp_server_loop_thread, NULL, &modbus_tcp_server_loop, NULL);
 
-
-    
+    pthread_join(parent_listen_thread, NULL);
     pthread_join(modbus_tcp_server_loop_thread, NULL);
     return 0;
 }
 
-#if !(TESTING)
-void parse_args(int ac, char **av, std::string &ovation_ip_addr, int &ovation_port) {
-    if (ac != 6) {
+void parse_args(int ac, char **av) {
+    if (ac != 6 || ac != 4) { // note that the proxy runs this process with 6 args. the last 2 args (id for itrc, and is-hmi are not relevant to ovation so not needed). So to avoid errors with running it with 6 args, the if statement has != 6 in it but it should just be !=4
         printf("Invalid args\n");
-        printf("Usage (run as a child process): ./path/to/io_process spinesIPAddr spinesPort ipc_path_suffix proxy_id_for_itrc client_is_hmi\n");
+        printf("Usage (run as a child process): ./path/to/io_process modbusIPaddrToUse modbusPortToUse ipc_path_suffix\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
-    ovation_ip_addr = av[1];
-    ovation_port = atoi(av[2]);
+    mb_server_ip = av[1];
+    mb_server_port = atoi(av[2]);
     ipc_path_suffix = av[3];
-    proxy_id_for_itrc = atoi(av[4]);
-
-    std::string client_type_arg = av[5];
-    if (client_type_arg == "1")
-        client_is_hmi = true;
-    else
-        client_is_hmi = false;
 }
-
-void _init_plcrtu(std::string spinesd_ip_addr, int spinesd_port, system_ns::itrc_data &itrc_data_main, system_ns::itrc_data &itrc_data_itrcclient, int &sock_main_to_itrc_thread, std::string proxy_prime_keys_dir, std::string proxy_sm_keys_dir, std::string ssproxy_ipc_main_procfile, std::string ssproxy_ipc_itrc_procfile)
-{   
-    struct timeval now;
-    system_ns::My_Global_Configuration_Number = 0;
-    system_ns::Init_SM_Replicas();
-
-    // NET Setup
-    gettimeofday(&now, NULL);
-    system_ns::My_Incarnation = now.tv_sec;
-    // Seq_Num = 1;
-    
-    system_ns::Type = RTU_TYPE;
-    system_ns::Prime_Client_ID = MAX_NUM_SERVER_SLOTS + system_ns::My_ID;
-    system_ns::My_IP = system_ns::getIP();
-    system_ns::My_ID = proxy_id_for_itrc;
-
-    // Setup IPC for the RTU Proxy main thread
-    printf("PROXY: Setting up IPC for RTU proxy thread (in io_proc)\n");
-    memset(&itrc_data_main, 0, sizeof(system_ns::itrc_data));
-    sprintf(itrc_data_main.prime_keys_dir, "%s", proxy_prime_keys_dir.c_str());
-    sprintf(itrc_data_main.sm_keys_dir, "%s", proxy_sm_keys_dir.c_str());
-    sprintf(itrc_data_main.ipc_local, "%s%d", ssproxy_ipc_main_procfile.c_str(), system_ns::My_ID);
-    sprintf(itrc_data_main.ipc_remote, "%s%d", ssproxy_ipc_itrc_procfile.c_str(), system_ns::My_ID);
-    sock_main_to_itrc_thread = system_ns::IPC_DGram_Sock(itrc_data_main.ipc_local);
-
-    // Setup IPC for the Worker Thread (running the ITRC Client)
-    memset(&itrc_data_itrcclient, 0, sizeof(system_ns::itrc_data));
-    sprintf(itrc_data_itrcclient.prime_keys_dir, "%s", proxy_prime_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.sm_keys_dir, "%s", proxy_sm_keys_dir.c_str());
-    sprintf(itrc_data_itrcclient.ipc_local, "%s%d", ssproxy_ipc_itrc_procfile.c_str(), system_ns::My_ID);
-    sprintf(itrc_data_itrcclient.ipc_remote, "%s%d", ssproxy_ipc_main_procfile.c_str(), system_ns::My_ID);
-    sprintf(itrc_data_itrcclient.spines_ext_addr, "%s", spinesd_ip_addr.c_str());
-    sscanf(std::to_string(spinesd_port).c_str(), "%d", &itrc_data_itrcclient.spines_ext_port);   
-}
-
-void ovation_setup(std::string ip_addr, int port) {
-	// TODO Ovation will probably have a separate HMI for ovation (which is synched up with the spire hmi. synched up as in shows the same stuff and is identical)
-	// if (client_is_hmi) { 
-    //     // TODO Ovation
-    // }
-    // else { // client is PLC/RTU
-    //     // TODO Ovation
-    // }
-
-	// go with plc only for now
-
-
-}
-
-#endif
 
 void setup_ipc_with_parent() {
     ipc_sock_to_parent = system_ns::IPC_DGram_SendOnly_Sock(); // for sending something TO the parent
@@ -438,40 +340,30 @@ void send_to_parent(system_ns::signed_message * mess)
     std::cout << "io_process for ovation (" << ipc_path_suffix << "): The message has been forwarded to the parent proc.\n";
 }
 
-#if !(TESTING)
-
-void *handler_msg_from_ovation(void *arg)
-{   // TODO Ovation: should use modbus_tcp_server_loop() here or with this fn
-    UNUSED(arg);
+int update_modbus_mapping(system_ns::signed_message * mess) { // updates the local data struct being used as a cache for the actual PLC's state
+    rtu_data_msg * rtud = (rtu_data_msg *)(mess + 1);
     
-    std::cout << "io_process for ovation (" << ipc_path_suffix << "): initialized handler_msg_from_itrc() \n";
+    // unsigned char data[RTU_DATA_PAYLOAD_LEN];
+    // data = rtud.data;
 
-    fd_set active_fd_set, read_fd_set;
-    int num;
-    // Init data structures for select()
-    FD_ZERO(&active_fd_set);
-    FD_SET(ioproc_ipc_sock_main_to_itrcthread, &active_fd_set);
+    pnnl_fields * pf =  (pnnl_fields *)(rtud.data);
     
-    while(1) {
-        read_fd_set = active_fd_set;
-        num = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
-        if (num > 0) {
-            if(FD_ISSET(ioproc_ipc_sock_main_to_itrcthread, &read_fd_set)) { // if there is a message from itrc client (main)
-                recv_then_fw_to_parent(ioproc_ipc_sock_main_to_itrcthread, 0, NULL); // TODO Ovation: do not need to always send the system instance message to the parent (i.e the Proxy) in the case of Ovation. Message needs to be sent to the parent (after some potential message unwrapping/wrapping) if the client's state is to be updated like e.g. close breaker type messages. But if the message is a client state polling message then do not forward to parent. Instead, need to use the state stored locally here to create a reply message and send that back to system instance (i.e. Ovation).
-            }
-        }
+    for (int i = 0; i < NUM_BREAKER; i++) {
+        mb_mapping->tab_bits[i] = pf->breaker_write[i];          // Coil.
+        mb_mapping->tab_input_bits[i] = pf->breaker_read[i];    // Input Status Bit.
     }
-
-    return NULL;
+    for (int i = 0; i < NUM_POINT; i++) {
+        mb_mapping->tab_registers[i] = pf->point[i]; // Holding Register.
+    }
+    return 1;
 }
 
-void *listen_on_parent_sock(void *arg) {
+void * listen_on_parent_sock(void * arg) {
     UNUSED(arg);
 
     int ret; 
     char buf[MAX_LEN];
     system_ns::signed_message *mess;
-    int nbytes;
 
     for (;;) {
         std::cout << "io_process for ovation (" << ipc_path_suffix << "): Waiting to receive something on the parent socket\n";
@@ -482,15 +374,12 @@ void *listen_on_parent_sock(void *arg) {
         else {
             std::cout << "io_process for ovation (" << ipc_path_suffix << "): Received a message from the parent. ret = " << ret << "\n";
             mess = (system_ns::signed_message *)buf;
-            nbytes = sizeof(system_ns::signed_message) + mess->len;
-            ret = system_ns::IPC_Send(ioproc_ipc_sock_main_to_itrcthread, (void *)mess, nbytes, ioproc_mainthread_to_itrcthread_data.ipc_remote); // TODO Ovation: instead of sending it to ITRC thread, need to instead use it to keep track of current state. 
-            if (ret < 0) {
-                std::cout << "io_process for ovation (" << ipc_path_suffix << "): Failed to sent message to the IRTC thread. ret = " << ret << "\n";
+            
+            // we just use these messages to update modbus mapping data struct as there is no direct communication between the plc and ovation. Ovation will see the updated state when it polls next.
+            if (update_modbus_mapping(mess) < 0) {
+                std::cout << "io_process for ovation (" << ipc_path_suffix << "): Error updating Modbus mapping\n";
             }
-            std::cout << "io_process for ovation (" << ipc_path_suffix << "): The message has been forwarded to the IRTC thread. ret = " << ret << "\n";
-
         }
     }
     return NULL;
 }
-#endif
