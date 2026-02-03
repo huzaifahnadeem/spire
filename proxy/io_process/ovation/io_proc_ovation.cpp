@@ -314,9 +314,9 @@ int main(int ac, char **av) {
 }
 
 void parse_args(int ac, char **av) {
-    if (ac != 6 || ac != 4) { // note that the proxy runs this process with 6 args. the last 2 args (id for itrc, and is-hmi are not relevant to ovation so not needed). So to avoid errors with running it with 6 args, the if statement has != 6 in it but it should just be !=4
+    if (ac != 6) { // note that the proxy runs this process with 6 args. the last 2 args (id for itrc, and is-hmi are not relevant to ovation so not needed). So to avoid errors with running it with 6 args, the if statement has != 6 in it but it should just be !=4
         printf("Invalid args\n");
-        printf("Usage (run as a child process): ./path/to/io_process modbusIPaddrToUse modbusPortToUse ipc_path_suffix\n");
+        printf("Usage (run as a child process): ./path/to/io_proc_ovation modbusIPaddrToUse modbusPortToUse ipc_path_suffix\n");
         exit(EXIT_FAILURE);
     }
     // by convention av[0] is just the prog name
