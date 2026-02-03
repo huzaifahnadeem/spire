@@ -1,3 +1,3 @@
 ovation 192.168.54.15:9999 239.255.0.3:9900 192.168.54.12:8888
 conf4 ./io_process/io_process 192.168.54.14:8120
-ovation ./io_process/ovation/io_proc_ovation.cpp 0.0.0.0:5020
+ovation ./io_process/ovation/io_proc_ovation 0.0.0.0:5020

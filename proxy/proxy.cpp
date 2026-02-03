@@ -577,7 +577,7 @@ void RTUsPLCsMessageBrokerManager::init_message_broker_processes_and_sockets() {
         std::string process_path = process_path_strstream.str();
         
         std::cout << "Starting message broker process"
-                    << "# " << i << "/" << cJSON_GetArraySize(protocols)
+                    << "# " << i+1 << "/" << cJSON_GetArraySize(protocols)
                     << "\n";
         
         // child -- run program on path
