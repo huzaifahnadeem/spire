@@ -107,52 +107,52 @@ void * modbus_tcp_server_loop(void * arg) {
     }
 
     // Initialize some values for testing (setting it to the initial values the same as PNNL PLC)
-    mb_mapping->tab_registers[0]  = 138; // Holding Register 0.
-    mb_mapping->tab_registers[1]  = 0;   // Holding Register 1
-    mb_mapping->tab_registers[2]  = 138;
-    mb_mapping->tab_registers[3]  = 0;
-    mb_mapping->tab_registers[4]  = 138;
-    mb_mapping->tab_registers[5]  = 0;
-    mb_mapping->tab_registers[6]  = 138;
-    mb_mapping->tab_registers[7]  = 0;
-    mb_mapping->tab_registers[8]  = 0;
-    mb_mapping->tab_registers[9]  = 0;
-    mb_mapping->tab_registers[10] = 0;
-    mb_mapping->tab_registers[11] = 0;
-    mb_mapping->tab_registers[12] = 0;
-    mb_mapping->tab_registers[13] = 0;
-    mb_mapping->tab_registers[14] = 0;
-    mb_mapping->tab_registers[15] = 32767; // for fun
+    // mb_mapping->tab_registers[0]  = 138; // Holding Register 0.
+    // mb_mapping->tab_registers[1]  = 0;   // Holding Register 1
+    // mb_mapping->tab_registers[2]  = 138;
+    // mb_mapping->tab_registers[3]  = 0;
+    // mb_mapping->tab_registers[4]  = 138;
+    // mb_mapping->tab_registers[5]  = 0;
+    // mb_mapping->tab_registers[6]  = 138;
+    // mb_mapping->tab_registers[7]  = 0;
+    // mb_mapping->tab_registers[8]  = 0;
+    // mb_mapping->tab_registers[9]  = 0;
+    // mb_mapping->tab_registers[10] = 0;
+    // mb_mapping->tab_registers[11] = 0;
+    // mb_mapping->tab_registers[12] = 0;
+    // mb_mapping->tab_registers[13] = 0;
+    // mb_mapping->tab_registers[14] = 0;
+    // mb_mapping->tab_registers[15] = 32767; // for fun
 
-    mb_mapping->tab_bits[0]  = 0;    // Coil 0.
-    mb_mapping->tab_bits[1]  = 0;    // Coil 1
-    mb_mapping->tab_bits[2]  = 0;
-    mb_mapping->tab_bits[3]  = 0;
-    mb_mapping->tab_bits[4]  = 0;
-    mb_mapping->tab_bits[5]  = 0;
-    mb_mapping->tab_bits[6]  = 0;
-    mb_mapping->tab_bits[7]  = 0;
-    mb_mapping->tab_bits[8]  = 0;
-    mb_mapping->tab_bits[9]  = 0;
-    mb_mapping->tab_bits[10] = 0;
-    mb_mapping->tab_bits[11] = 0;
-    mb_mapping->tab_bits[12] = 0;
-    mb_mapping->tab_bits[13] = 0;
+    // mb_mapping->tab_bits[0]  = 0;    // Coil 0.
+    // mb_mapping->tab_bits[1]  = 0;    // Coil 1
+    // mb_mapping->tab_bits[2]  = 0;
+    // mb_mapping->tab_bits[3]  = 0;
+    // mb_mapping->tab_bits[4]  = 0;
+    // mb_mapping->tab_bits[5]  = 0;
+    // mb_mapping->tab_bits[6]  = 0;
+    // mb_mapping->tab_bits[7]  = 0;
+    // mb_mapping->tab_bits[8]  = 0;
+    // mb_mapping->tab_bits[9]  = 0;
+    // mb_mapping->tab_bits[10] = 0;
+    // mb_mapping->tab_bits[11] = 0;
+    // mb_mapping->tab_bits[12] = 0;
+    // mb_mapping->tab_bits[13] = 0;
 
-    mb_mapping->tab_input_bits[0]  = 0;    // Input Status Bit 0.
-    mb_mapping->tab_input_bits[1]  = 1;    // Input Status Bit 1
-    mb_mapping->tab_input_bits[2]  = 0;
-    mb_mapping->tab_input_bits[3]  = 1;
-    mb_mapping->tab_input_bits[4]  = 1;
-    mb_mapping->tab_input_bits[5]  = 0;
-    mb_mapping->tab_input_bits[6]  = 0;
-    mb_mapping->tab_input_bits[7]  = 1;
-    mb_mapping->tab_input_bits[8]  = 0;
-    mb_mapping->tab_input_bits[9]  = 1;
-    mb_mapping->tab_input_bits[10] = 0;
-    mb_mapping->tab_input_bits[11] = 1;
-    mb_mapping->tab_input_bits[12] = 0;
-    mb_mapping->tab_input_bits[13] = 1;
+    // mb_mapping->tab_input_bits[0]  = 0;    // Input Status Bit 0.
+    // mb_mapping->tab_input_bits[1]  = 1;    // Input Status Bit 1
+    // mb_mapping->tab_input_bits[2]  = 0;
+    // mb_mapping->tab_input_bits[3]  = 1;
+    // mb_mapping->tab_input_bits[4]  = 1;
+    // mb_mapping->tab_input_bits[5]  = 0;
+    // mb_mapping->tab_input_bits[6]  = 0;
+    // mb_mapping->tab_input_bits[7]  = 1;
+    // mb_mapping->tab_input_bits[8]  = 0;
+    // mb_mapping->tab_input_bits[9]  = 1;
+    // mb_mapping->tab_input_bits[10] = 0;
+    // mb_mapping->tab_input_bits[11] = 1;
+    // mb_mapping->tab_input_bits[12] = 0;
+    // mb_mapping->tab_input_bits[13] = 1;
 
     // Listen for incoming connections
     // This creates the socket and binds it
@@ -346,14 +346,41 @@ int update_modbus_mapping(system_ns::signed_message * mess) { // updates the loc
     // unsigned char data[RTU_DATA_PAYLOAD_LEN];
     // data = rtud.data;
 
-    system_ns::pnnl_fields * pf =  (system_ns::pnnl_fields *)(rtud);
+    system_ns::pnnl_fields * pf =  (system_ns::pnnl_fields *)(rtud->data);
     
     for (int i = 0; i < NUM_BREAKER; i++) {
-        mb_mapping->tab_bits[i] = pf->breaker_write[i];          // Coil.
-        mb_mapping->tab_input_bits[i] = pf->breaker_read[i];    // Input Status Bit.
+        uint8_t bw = pf->breaker_write[i]; // Coil.
+        mb_mapping->tab_bits[i] = bw;
+        uint8_t br = pf->breaker_read[i]; // Input Status Bit.
+        mb_mapping->tab_input_bits[i] = br;    
     }
+    
+    // Holding Registers:
+    int j = 0;
     for (int i = 0; i < NUM_POINT; i++) {
-        mb_mapping->tab_registers[i] = pf->point[i]; // Holding Register.
+        uint8_t byte1, byte2, byte3, byte4;
+
+        // pf->point[i] is uint32_t. stores two 16-bit registers (so 2 bytes each)
+        byte1 = (pf->point[i] >> 24); // high
+        byte2 = (pf->point[i] >> 16);
+        byte3 = (pf->point[i] >> 8);
+        byte4 = (pf->point[i] >> 0); // low
+
+        // ref to modbus_master.c: readModbus() for more on this translation
+        uint16_t reg0, reg1 = 0;
+
+        reg0 = byte3; 
+        reg0 = reg0 << 8; 
+        reg0 = reg0 | byte4; 
+
+        reg1 = byte1; 
+        reg1 = reg1 << 8; 
+        reg1 = reg1 | byte2; 
+
+        mb_mapping->tab_registers[j] = reg0;
+        mb_mapping->tab_registers[j+1] = reg1;
+    
+        j += 2;
     }
     return 1;
 }
