@@ -1,0 +1,67 @@
+/===========================================================================\
+| Spines                                                                    |
+| Copyright (c) 2003 - 2025 Johns Hopkins University                        |
+| All rights reserved.                                                      |
+|                                                                           |
+| Spines is licensed under the Spines Open-Source License.                  |
+| You may only use this software in compliance with the License.            |
+| A copy of the License can be found at http://www.spines.org/LICENSE.txt   |
+|                                                                           |
+| Creators:                                                                 |
+|    Yair Amir                 yairamir@cs.jhu.edu                          |
+|    Claudiu Danilov           claudiu@cs.jhu.edu                           |
+|    John Lane Schultz         jschultz@spreadconcepts.com                  |
+|    Daniel Obenshain          dano@cs.jhu.edu                              |
+|    Thomas Tantillo           tantillo@cs.jhu.edu                          |
+|    Amy Babay                 babay@cs.jhu.edu                             |
+|                                                                           |
+| Major Contributors:                                                       |
+|    John Lane                 johnlane@cs.jhu.edu                          |
+|    Raluca Musaloiu-Elefteri  ralucam@cs.jhu.edu                           |
+|    Nilo Rivera                nrivera@cs.jhu.edu                          |
+|                                                                           |
+| Contributors:                                                             |
+|    Sahiti Bommareddy         sahiti@jhu.edu                               |
+|                                                                           |
+|                                                                           |
+| WWW:     www.spines.org      www.dsn.jhu.edu                              |
+| Contact: spines@spines.org                                                |
+|                                                                           |
+| Version 5.7, Built March 5, 2025                                          |
+|                                                                           |
+| This product uses software developed by Spread Concepts LLC for use       |
+| in the Spread toolkit. For more information about Spread,                 |
+| see http://www.spread.org                                                 |
+\===========================================================================/
+
+06/16/25 11:44:55.756071 Init_My_Node: Local identifier = 192.168.54.32
+06/16/25 11:44:55.756165 Conf_load_conf_file: using file: spines_ctrl_mesh.conf
+06/16/25 11:44:55.756190 Conf_set_IT_crypto: changed Crypto to TRUE
+06/16/25 11:44:55.756206 Conf_set_RR_crypto: changed Crypto to FALSE
+Degree = 25
+Ngbr[1] = (1,192.168.54.10)
+Ngbr[2] = (2,192.168.54.11)
+Ngbr[3] = (3,192.168.54.12)
+Ngbr[4] = (4,192.168.54.13)
+Ngbr[5] = (5,192.168.54.14)
+Ngbr[6] = (6,192.168.54.15)
+Ngbr[7] = (7,192.168.54.16)
+Ngbr[8] = (8,192.168.54.17)
+Ngbr[9] = (9,192.168.54.18)
+Ngbr[10] = (10,192.168.54.19)
+Ngbr[11] = (11,192.168.54.20)
+Ngbr[12] = (12,192.168.54.21)
+Ngbr[13] = (13,192.168.54.22)
+Ngbr[14] = (14,192.168.54.23)
+Ngbr[15] = (15,192.168.54.24)
+Ngbr[16] = (16,192.168.54.25)
+Ngbr[17] = (17,192.168.54.26)
+Ngbr[18] = (18,192.168.54.27)
+Ngbr[19] = (19,192.168.54.28)
+Ngbr[20] = (20,192.168.54.29)
+Ngbr[21] = (21,192.168.54.30)
+Ngbr[22] = (22,192.168.54.31)
+Ngbr[23] = (24,192.168.54.33)
+Ngbr[24] = (25,192.168.54.34)
+Ngbr[25] = (26,192.168.54.35)
+Process Terminated with 11 signal

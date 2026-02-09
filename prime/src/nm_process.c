@@ -63,6 +63,7 @@
 #include "catchup.h"
 #include "proactive_recovery.h"
 #include "tc_wrapper.h"
+#include "parser.h"
 
 #ifdef SET_USE_SPINES
 #include "spines_lib.h"
@@ -179,9 +180,22 @@ void process_oob_config(signed_message *mess)
     Alarm(DEBUG, "Finished changing server and spine addresses new N= %d, my id= %d , new f=%d\n",VAR.Num_Servers,VAR.My_Server_ID,VAR.F);
 
     //TODO: Replace to read keys from different dir
-    OPENSSL_RSA_Read_Keys(VAR.My_Server_ID, RSA_SERVER,"/tmp/test_keys/prime");
-    TC_Read_Public_Key("/tmp/test_keys/prime");
-    TC_Read_Partial_Key(VAR.My_Server_ID, 1,"/tmp/test_keys/prime");
+    // OPENSSL_RSA_Read_Keys(VAR.My_Server_ID, RSA_SERVER,"/tmp/test_keys/prime");
+    // TC_Read_Public_Key("/tmp/test_keys/prime");
+    // TC_Read_Partial_Key(VAR.My_Server_ID, 1,"/tmp/test_keys/prime");
+
+    
+    struct config *cfg = load_yaml_config("received_configs/conf.yaml");
+    if (cfg == NULL)
+    {
+        Alarm(EXIT, "Failed to parse config file.\n");
+    }
+    OPENSSL_RSA_Read_Keys(VAR.My_Server_ID, RSA_SERVER, cfg, ".");
+
+    TC_Read_Public_Key_From_Config(cfg);
+    TC_Read_Partial_Key_From_Config(VAR.My_Server_ID, cfg);
+
+
     Alarm(DEBUG, "Finished reading keys.\n");
 
     //Update NET. all 3 addr

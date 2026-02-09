@@ -1,576 +1,1058 @@
-/*
- * Spire.
- *
- * The contents of this file are subject to the Spire Open-Source
- * License, Version 1.0 (the ``License''); you may not use
- * this file except in compliance with the License.  You may obtain a
- * copy of the License at:
- *
- * http://www.dsn.jhu.edu/spire/LICENSE.txt
- *
- * or in the file ``LICENSE.txt'' found in this distribution.
- *
- * Software distributed under the License is distributed on an AS IS basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * Spire is developed at the Distributed Systems and Networks Lab,
- * Johns Hopkins University and the Resilient Systems and Societies Lab,
- * University of Pittsburgh.
- *
- * Creators:
- *   Yair Amir            yairamir@cs.jhu.edu
- *   Trevor Aron          taron1@cs.jhu.edu
- *   Amy Babay            babay@pitt.edu
- *   Thomas Tantillo      tantillo@cs.jhu.edu
- *   Sahiti Bommareddy    sahiti@cs.jhu.edu
- *   Maher Khan           maherkhan@pitt.edu
- *
- * Major Contributors:
- *   Marco Platania       Contributions to architecture design
- *   Daniel Qian          Contributions to Trip Master and IDS
- *
- * Contributors:
- *   Samuel Beckley       Contributions to HMIs
- *
- * Copyright (c) 2017-2023 Johns Hopkins University.
- * All rights reserved.
- *
- * Partial funding for Spire research was provided by the Defense Advanced
- * Research Projects Agency (DARPA), the Department of Defense (DoD), and the
- * Department of Energy (DoE).
- * Spire is not necessarily endorsed by DARPA, the DoD or the DoE.
- *
- */
+#define _GNU_SOURCE
+#define __USE_MISC
 
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <netdb.h>
+#include <stdio.h>
 #include <assert.h>
-#include <signal.h>
-#include <sys/un.h>
-#include <sys/stat.h>
-#include <errno.h>
 #include <arpa/inet.h>
-#include <signal.h>
-
-#include "packets.h"
-#include "openssl_rsa.h"
-#include "net_wrapper.h"
-#include "def.h"
-#include "data_structs.h"
+#include <netdb.h>
+#include <netinet/in.h>
+#include <time.h>
+#include <ifaddrs.h>
+#include <dirent.h>
 
 #include "spu_alarm.h"
 #include "spu_events.h"
-#include "spu_memory.h"
-#include "spu_data_link.h"
+#include "net_wrapper.h"
 #include "spines_lib.h"
+// #include "parser.h"
+// #include "key_generation.h"
+#include "config_utils.h"
+#include "def.h"
 
-int ctrl_spines,config_ipc_inject;
-int SM_Flag,NON_SM_Flag ,app_path[100],app_count;
-int sm_node_ids[MAX_NUM_SERVER_SLOTS];
-int needed_keys_ids[MAX_NUM_SERVER_SLOTS];
-sp_time timeout;
-signed_message *mess;
-char sm_addr[32];
-struct sockaddr_in name;
-struct ip_mreq mreq;
-int32u curr_config;
-int total_key_frags,recvd_key_frags_count;
-int recvd_key_frags[10];
-signed_message * curr_config_msg;
-char *key;
-int send_config;
-int My_ID,counter;
-signed_message *key_messages[10];
-extern server_variables VAR;
+#define MAX_DAEMONS 256
+#define BASE_SPINES_CONFIG "base_spines.conf"
+#define SPINES_INT_FILE "../../spines/daemon/spines_int.conf"
+#define SPINES_EXT_FILE "../../spines/daemon/spines_ext.conf"
+#define DEFAULT_SPINES_ADDR "127.0.0.1"
+#define DEFAULT_SPINES_PORT 8200
+const char spines_internal_key_dir[] = "../../spines/daemon/internal_keys";
+const char spines_external_key_dir[] = "../../spines/daemon/external_keys";
 
-void Usage(int argc, char **argv);
-void Init_CA_Network();
-void full_decrypt(int decrypt_id,int32u key_parts,int32u key_part_size,int32u unenc_size,char *enc_key, char *dec_key);
-void send_to_app(int code, void *dummy);
-void repeat_broadcast(int code, void *dummy);
-void write_to_file(int32u key_type, int32u key_id,int32u key_size,char *currkey);
-void Handle_Config_Msg(int s, int source, void * dummy_p);
+typedef struct
+{
+    int spines_int;
+    int spines_ext;
+    int prime;
+    int scada_master;
+    int jhu_hmi;
+    int pnnl_hmi;
+    int ems_hmi;
+    int proxy;
+    int benchmark;
+} ComponentFlags;
 
+typedef struct
+{
+    const char *ip;
+    unsigned id;
+} DaemonEntry;
 
+// Fragmentation and message size constants
+#define MAX_FRAGMENT_SIZE (MAX_SPINES_CLIENT_MSG - 12)
+#define MAX_TOTAL_SIZE (10 * 1024 * 1024) // 10 MB max config
 
+// Structure for each configuration message fragment header
+typedef struct dummy_conf_fragment
+{
+    int32u conf_id;
+    int32u total_fragments;
+    int32u fragment_index;
+} conf_fragment;
 
-void full_decrypt(int decrypt_id,int32u key_parts,int32u key_part_size,int32u unenc_size,char *enc_key, char *dec_key){
-    char dec_filename[250];
-    char pvtkeyfilename[250];
-    char *dec_chunk;
-    dec_chunk=malloc(key_part_size);
-    int i;
+// Global state variables
+static int Ctrl_Spines = -1;
+static int32u Conf_ID = 1;
 
-    memset(pvtkeyfilename,0,sizeof(pvtkeyfilename));
-    sprintf(pvtkeyfilename,"./tpm_keys/tpm_private%d.pem",decrypt_id);
-    Alarm(DEBUG,"Pvt decryption key file is %s\n",pvtkeyfilename);
-    for(i =0; i< key_parts; i++){
-        memset(dec_chunk,0,key_part_size);
-        OPENSSL_RSA_Decrypt(pvtkeyfilename,enc_key,key_part_size,dec_chunk);
-        if(unenc_size>=key_part_size){
-	    memcpy(dec_key,dec_chunk,key_part_size);
-	    //memcpy(dec_key,enc_key,key_part_size);
-            dec_key+=key_part_size;
-        }
-        else{
-	    memcpy(dec_key,dec_chunk,unenc_size);
-	    //memcpy(dec_key,enc_key,unenc_size);
-            dec_key+=unenc_size;
-        }
-        enc_key+=key_part_size;
-        if(unenc_size>=key_part_size)
-            unenc_size-=key_part_size;
-        else
-            unenc_size-=unenc_size;
-    Alarm(DEBUG,"remaining key len=%lu\n",unenc_size);
-    }
-}
+// Buffers for fragment data and lengths
+static char **fragment_data = NULL;
+static size_t *fragment_lens = NULL;
 
+// Fragment tracking
+static int received_fragments = 0;
+static int expected_fragments = -1;
 
-void send_to_app(int code, void *dummy){
-    char ipc_config[100];
-    int ret2,i,repeat;
+static int32u Last_Seen_Conf_ID = 0;
+static char latest_config_path[512] = "received_configs/latest.yaml";
 
-    if(!send_config){
-        Alarm(DEBUG,  "Not sending as send_config flag is not set\n");
-	return;
-	}
-    repeat =0;
-    if (send_config){
-        if(SM_Flag){
-		for(i=1;i<MAX_NUM_SERVER_SLOTS;i++){
-			if(sm_node_ids[i]==0)
-			      continue;
-                	sprintf(ipc_config, "%s%d", app_path, i);
-                	ret2=IPC_Send(config_ipc_inject,curr_config_msg,sizeof(signed_message)+sizeof(nm_message), ipc_config);
-                	if (ret2!=sizeof(nm_message)){
-                    		Alarm(PRINT, "Config Agent: Error sending to %s\n",ipc_config);
-				repeat=1;
-			}
-                	Alarm(DEBUG,"Sent to %s mesage of type=%d, size= %d\n",ipc_config,((signed_message *)curr_config_msg)->type,ret2);
-		}
-            }
-	if (NON_SM_Flag){
-		for(i=1;i<=app_count;i++){
-			sprintf(ipc_config,"%s%d",app_path,i);
-			ret2=IPC_Send(config_ipc_inject,curr_config_msg,sizeof(signed_message)+sizeof(nm_message), ipc_config);	
-                	if (ret2!=sizeof(nm_message)){
-                    		Alarm(PRINT, "Config Agent: Error sending to %s\n",ipc_config);
-				repeat=1;
-			}
-                	Alarm(DEBUG,"Sent to %s mesage of type=%d, size= %d\n",ipc_config,((signed_message *)curr_config_msg)->type,ret2);
-		}
-	}
-        if(!repeat)
-            send_config=0;
-        Alarm(DEBUG,"Handled Config Msg\n");
-    }
-}
+static char Spines_Addr[32] = DEFAULT_SPINES_ADDR;
+static int Spines_Port = DEFAULT_SPINES_PORT;
+static char Host_Name[128] = {0}; // Empty string by default
 
-void repeat_broadcast(int code, void *dummy){
-    int ret=0;
-    int Num_bytes=0;
-    struct sockaddr_in dest;
-    struct hostent     h_ent;
-    int i;
-    sp_time timeout;
+int log_to_file = 0;
 
-    memcpy(&h_ent, gethostbyname(CONF_SPINES_MCAST_ADDR), sizeof(h_ent));
-    memcpy( &dest.sin_addr, h_ent.h_addr, sizeof(dest.sin_addr) );
+static void Init_Network(void);
+static void Handle_Conf_Message(int s, int source, void *dummy);
+static void Usage(int argc, char **argv);
+static void Print_Usage(void);
 
-    dest.sin_family = AF_INET;
-    dest.sin_port   = htons(CONF_SPINES_MCAST_PORT);
+int Assemble_Config_Buffer(char **out_buf, size_t *out_len);
+int Verify_Config_Signature(const char *buf, size_t len);
+int Handle_Verified_Config(const char *yaml_data, size_t yaml_len);
+void Cleanup_Fragments(void);
 
-    Num_bytes=sizeof(signed_message)+curr_config_msg->len;
-    ret = spines_sendto(ctrl_spines, curr_config_msg, Num_bytes, 0, (struct sockaddr *)&dest, sizeof(struct sockaddr));
-    if(ret!=Num_bytes){
-        Alarm(PRINT,"Config Agent: Spines sendto ret != message size\n");
-	return;
-    }
-    Alarm(DEBUG,"****Config Agent: sent config message %d bytes to dest addr=%s\n",Num_bytes,inet_ntoa(dest.sin_addr));
-    for(i =0 ; i < 10;i++){
-	if(key_messages[i]==NULL)
-		continue;
-        Num_bytes=sizeof(signed_message)+key_messages[i]->len;
-
-        ret = spines_sendto(ctrl_spines, key_messages[i], Num_bytes, 0, (struct sockaddr *)&dest, sizeof(struct sockaddr));
-        if(ret!=Num_bytes){
-            Alarm(PRINT,"Config Agen: Spines sendto ret != keys message size\n");
-	    return;
-        }
-        Alarm(DEBUG,"****Config Agent: sent key message %d bytes to dest addr=%s\n",Num_bytes,inet_ntoa(dest.sin_addr));
-    }
-    timeout.sec=10;
-    timeout.usec=0;
-    E_queue(repeat_broadcast,0,NULL,timeout);
-
-}
-
-void write_to_file(int32u key_type, int32u key_id,int32u key_size,char *currkey){
-    char filename[250],dirname[250];
-    FILE *fp;
-    int ret;
-    struct stat st = {0};
-
-    Alarm(DEBUG,"Write to file\n");
-    memset(filename,0,sizeof(filename));
-    memset(dirname,0,sizeof(dirname));
-    //VCreate dir of format MyID_test_keys
-    sprintf(dirname,"%s","/tmp/test_keys");
-    if (stat(dirname, &st) == -1) {
-        ret=mkdir(dirname, 0755);
-        if(ret<0)
-            Alarm(PRINT,"Error creating %s\n",dirname);
-    }
-    
-    //Create dir of format MyID_test_keys/sm or  MyID_test_keys/prime
-    memset(dirname,0,sizeof(dirname));
-    if(key_type==SM_TC_PUB){
-        sprintf(dirname,"%s","/tmp/test_keys/sm");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/%s",dirname,"pubkey_1.pem");
-        }
-    if(key_type==PRIME_TC_PUB){
-        sprintf(dirname,"%s","/tmp/test_keys/prime");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/%s",dirname,"pubkey_1.pem");
-        }
-   if(key_type==PRIME_RSA_PUB){
-        sprintf(dirname,"%s","/tmp/test_keys/prime");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/public_%02d.key",dirname,key_id);
-        }
-    if(key_type==SM_TC_PVT){
-        sprintf(dirname,"%s","/tmp/test_keys/sm");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/share%d_1.pem",dirname,key_id);
-        }
-    if(key_type==PRIME_TC_PVT){
-        sprintf(dirname,"%s","/tmp/test_keys/prime");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/share%d_1.pem",dirname,key_id);
-        }
-
-    if(key_type==PRIME_RSA_PVT){
-        sprintf(dirname,"%s","/tmp/test_keys/prime");
-        if (stat(dirname, &st) == -1) {
-            ret=mkdir(dirname, 0755);
-            if(ret<0)
-                Alarm(PRINT,"Error creating %s\n",dirname);
-        }
-        sprintf(&filename,"%s/private_%02d.key",dirname,key_id);
-        }
-
-    Alarm(DEBUG,"filename is %s\n",filename); 
-    fp = fopen(filename,"w");
-    if(!fp){
-        Alarm(PRINT, "Error opening file %s\n",filename);
-    }
-    else{
-        Alarm(PRINT, "Opened file %s\n",filename);
-    }
-    ret=fwrite(currkey, 1,key_size,fp);
-    
-    if(ret!=key_size)
-        Alarm(PRINT,"Error writing to %s\n",filename);
-    
-    fclose(fp);
-
-}
-
+void start_components_from_config(const struct config *cfg, const struct host *me, ComponentFlags *restarted);
+int kill_all_components(ComponentFlags *flags);
+void pad_killed_logs(const ComponentFlags *killed, const ComponentFlags *restarted);
+void generate_spines_topologies(const struct config *cfg);
 
 int main(int argc, char **argv)
 {
-    setlinebuf(stdout);
     Alarm_set_types(PRINT);
-    //Alarm_set_types(STATUS|DEBUG);
-    Usage(argc,argv);
-    OPENSSL_RSA_Init();
-    OPENSSL_RSA_Read_Keys(0,RSA_CONFIG_AGENT,"./keys");
-    Init_CA_Network();
-     
+
+    Usage(argc, argv);
+
+    // set up multicast socket for receiving config messages
+    Init_Network();
+
+    // Initialize Spines events
     E_init();
-    E_attach_fd(ctrl_spines, READ_FD, Handle_Config_Msg,NULL,NULL,HIGH_PRIORITY);
+
+    // attach a handler to the Spines socket for READ events
+    E_attach_fd(Ctrl_Spines, READ_FD, Handle_Conf_Message, 0, NULL, HIGH_PRIORITY);
+
+    // Start the event loop
     E_handle_events();
-    
-}//main
+    return 0;
+}
 
+static void Init_Network(void)
+{
+    struct ip_mreq mreq;
 
-void Handle_Config_Msg(int s, int source, void * dummy_p){
-    int ret,ret2,dec_key_id,id,i;
-    byte buff[50000];
+    // create a spines socket to receive the messsages
+    Ctrl_Spines = Spines_Sock(Spines_Addr, Spines_Port, SPINES_PRIORITY, CONF_SPINES_MCAST_PORT);
+    if (Ctrl_Spines < 0)
+    {
+        Alarm(EXIT, "Config_Agent: Error setting up Spines socket\n");
+    }
+
+    // join the multicast group on any interface
+    mreq.imr_multiaddr.s_addr = inet_addr(CONF_SPINES_MCAST_ADDR);
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+
+    // add multicast group membership for spines socket
+    if (spines_setsockopt(Ctrl_Spines, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) < 0)
+    {
+        Alarm(EXIT, "Config_Agent: Failed to join multicast group\n");
+    }
+
+    Alarm(PRINT, "Config_Agent: Ready!\n");
+}
+
+static void Handle_Conf_Message(int s, int source, void *dummy)
+{
+    char buffer[MAX_FRAGMENT_SIZE + sizeof(conf_fragment)];
     struct sockaddr_in from_addr;
-    socklen_t from_len=sizeof(from_addr);
-    signed_message *mess;
-    nm_message *c_mess;
+    socklen_t from_len = sizeof(from_addr);
 
-    ret=spines_recvfrom(ctrl_spines, buff, 50000, 0, (struct sockaddr *) &from_addr, &from_len);
-    if(ret>0){
-        Alarm(DEBUG, "Config Agent %d: Received spines message of size=%d\n",counter,ret);
-        if (ret < sizeof(signed_message)){
-            Alarm(PRINT,"Config Agent: Config Message size smaller than signed message\n");
-            return;
-        }
-        mess = (signed_message*)buff;
-        
-        if (ret < (sizeof(signed_message)+mess->len)){
-            Alarm(PRINT,"Config Agent: Config Message size smaller than expected\n");
-            return;
-        }
-        
-        if(mess->type!=CLIENT_OOB_CONFIG_MSG && mess->type!=CONFIG_KEYS_MSG){
-            Alarm(PRINT,"Config Agent: Message type is not config message\n");
-            return;
-        }
-        if(!OPENSSL_RSA_Verify((unsigned char*)mess+SIGNATURE_SIZE,
-                    sizeof(signed_message)+mess->len-SIGNATURE_SIZE,
-                    (unsigned char*)mess,mess->machine_id,RSA_NM)){
-            Alarm(PRINT,"Config Agent: Config message signature verification failed\n");
+    // receive frag from spines socket
+    int ret = spines_recvfrom(s, buffer, sizeof(buffer), 0, (struct sockaddr *)&from_addr, &from_len);
+    if (ret <= 0)
+        return;
 
-            return;
-        }
-        Alarm(DEBUG,"Verified Config Message type=%d\n",mess->type);
-        if(mess->type == CLIENT_OOB_CONFIG_MSG){
-            counter+=1;
-            if(mess->global_configuration_number<=curr_config)
-                return;
-            curr_config = mess->global_configuration_number;
-            c_mess=(nm_message *)(mess+1);
-    	    memset(needed_keys_ids,0,sizeof(needed_keys_ids));
-            
-	    for (id=1;id<=MAX_NUM_SERVER_SLOTS;id++){
-		if(sm_node_ids[id]==1){
-		     if(c_mess->tpm_based_id[id-1]!=0){
-			needed_keys_ids[c_mess->tpm_based_id[id-1]]=1;	
-			}	
-		    }
-		}
-	    //free old keys and to save new keys when we get them
-	    if(total_key_frags>0){
-		for (i=0;i<10;i++){
-			if(key_messages[i]!=NULL)
-				free(key_messages[i]);
-			key_messages[i]=NULL;
-		}
-	    }
-            //store config message for SM and repeat
-	    total_key_frags= c_mess->frag_num;
-            recvd_key_frags_count = 0;
-            memset(recvd_key_frags,0,sizeof(recvd_key_frags));
-            memcpy(curr_config_msg, mess, ret);
-    	    counter=0; 
-        }
-        else if(mess->type ==CONFIG_KEYS_MSG){
-        if(mess->global_configuration_number!=curr_config ){
-            Alarm(DEBUG, "Keys conf=%lu but expected conf=%lu\n",mess->global_configuration_number,curr_config);
-            return;
-        }
-        if(total_key_frags>0 && recvd_key_frags_count==total_key_frags){
-            Alarm(DEBUG, "Already have all Keys\n");
-            return;
-        }
-	
-        Alarm(DEBUG,"mess_conf=%lu, curr_conf=%lu, total_key_frags=%d,recvd_key_frags_count=%d\n",mess->global_configuration_number,curr_config,total_key_frags,recvd_key_frags_count);
-	 key_msg_header *km_header;
-         km_header=(key_msg_header *)(mess+1);
+    // ignore if fragments too small
+    if (ret < sizeof(conf_fragment))
+    {
+        Alarm(DEBUG, "Config_Agent: Received fragment too small\n");
+        return;
+    }
 
-         pvt_key_header *pvt_header;
-         pub_key_header *pub_header;
-         if(recvd_key_frags[km_header->frag_idx]==1)
-             return;
-	 //save keys for repeat
-         key_messages[km_header->frag_idx-1]=malloc(ret);
-	 memset(key_messages[km_header->frag_idx-1],0,ret);
-	 memcpy(key_messages[km_header->frag_idx-1],mess,ret);
+    conf_fragment *hdr = (conf_fragment *)buffer;
+    char *payload = buffer + sizeof(conf_fragment);
+    size_t payload_len = ret - sizeof(conf_fragment);
 
-	 recvd_key_frags[km_header->frag_idx] =1;
-         recvd_key_frags_count+=1;
-         int curr_idx =0;
-         int max_idx=mess->len - sizeof(key_msg_header);
-         char *key_buff=malloc(max_idx);
-         memset(key_buff,0,max_idx);
-         memcpy(key_buff,km_header+1,max_idx);
-         while(curr_idx<max_idx){
-            int32u type=key_buff[curr_idx];
-            if(type==SM_TC_PUB || type == PRIME_TC_PUB || type == PRIME_RSA_PUB){
-                Alarm(DEBUG,"key_type=%d curr_idx=%d\t",type,curr_idx);
-                pub_header = (pub_key_header *)&(key_buff[curr_idx]);
-                curr_idx+=sizeof(pub_key_header);
-                Alarm(DEBUG,"tyep=%lu, id=%lu, size=%lu\n",pub_header->key_type, pub_header->id,pub_header->size);
-                write_to_file(pub_header->key_type, pub_header->id,pub_header->size,pub_header+1);
-                curr_idx+= pub_header->size;
+    // ignore duplicate and older config ids
+    if (hdr->conf_id <= Last_Seen_Conf_ID)
+    {
+        Alarm(DEBUG, "Config_Agent: Ignoring duplicate or older conf_id %u (last seen: %u)\n", hdr->conf_id, Last_Seen_Conf_ID);
+        return;
+    }
+
+    // if its the first time seeing this config id, or its a new config id
+    if (expected_fragments == -1 || hdr->conf_id != Conf_ID)
+    {
+        // clean up if there are existing fragments
+        if (fragment_data != NULL)
+        {
+            for (int i = 0; i < expected_fragments; i++)
+            {
+                free(fragment_data[i]);
             }
-            else if(type==SM_TC_PVT || type == PRIME_TC_PVT || type == PRIME_RSA_PVT){
-                pvt_header = (pvt_key_header *)&(key_buff[curr_idx]);
-                if(SM_Flag==0){
-                    curr_idx+=sizeof(pvt_key_header);
-                    curr_idx+= pvt_header->pvt_key_parts*pvt_header->pvt_key_part_size;
+            free(fragment_data);
+            free(fragment_lens);
+            fragment_data = NULL;
+            fragment_lens = NULL;
+        }
+
+        // update state for new config
+        expected_fragments = hdr->total_fragments;
+        received_fragments = 0;
+        Conf_ID = hdr->conf_id;
+
+        fragment_data = calloc(expected_fragments, sizeof(char *));
+        fragment_lens = calloc(expected_fragments, sizeof(size_t));
+
+        Alarm(DEBUG, "Config_Agent: Resetting to expect %d fragments for new conf ID %u\n", expected_fragments, Conf_ID);
+    }
+
+    // drop unexpected fragments
+    if (hdr->conf_id < Conf_ID || hdr->fragment_index >= expected_fragments)
+    {
+        Alarm(DEBUG, "Config_Agent: Unexpected conf_id or fragment index\n");
+        return;
+    }
+
+    // drop duplicate f ragments
+    if (fragment_data[hdr->fragment_index] != NULL)
+    {
+        Alarm(DEBUG, "Config_Agent: Duplicate fragment %d ignored\n", hdr->fragment_index);
+        return;
+    }
+
+    // store fragment
+    fragment_data[hdr->fragment_index] = malloc(payload_len);
+    memcpy(fragment_data[hdr->fragment_index], payload, payload_len);
+    fragment_lens[hdr->fragment_index] = payload_len;
+    received_fragments++;
+
+    Alarm(DEBUG, "Config_Agent: Got fragment %d/%d (len=%lu)\n", hdr->fragment_index + 1, expected_fragments, payload_len);
+
+    // if all fragments received, assemble and process the config
+    if (received_fragments == expected_fragments)
+    {
+        Alarm(PRINT, "Config_Agent: All %d fragments received. Assembling config...\n", expected_fragments);
+
+        char *assembled = NULL;
+        size_t assembled_len = 0;
+
+        // combine frags into a full buffer
+        if (Assemble_Config_Buffer(&assembled, &assembled_len) != 0)
+        {
+            Alarm(PRINT, "Config_Agent: Failed to assemble config buffer\n");
+            Cleanup_Fragments();
+            return;
+        }
+
+        // verify the signature
+        if (Verify_Config_Signature(assembled, assembled_len) != 0)
+        {
+            Alarm(PRINT, "Config_Agent: Signature is INVALID\n");
+            free(assembled);
+            Conf_ID = 0;
+            Cleanup_Fragments();
+            return;
+        }
+
+        // parse the yaml and process the config
+        if (Handle_Verified_Config(assembled, assembled_len) != 0)
+        {
+            Alarm(PRINT, "Config_Agent: Failed to handle verified config\n");
+        }
+        else
+        {
+            Last_Seen_Conf_ID = Conf_ID;
+            Conf_ID = 0;
+        }
+
+        free(assembled);
+        Cleanup_Fragments();
+    }
+}
+
+/**
+ * Reassembles received configuration fragments into a single contiguous buffer.
+ */
+int Assemble_Config_Buffer(char **out_buf, size_t *out_len)
+{
+    if (!fragment_data || !fragment_lens || expected_fragments <= 0)
+        return -1;
+
+    size_t total_len = 0;
+    for (int i = 0; i < expected_fragments; i++)
+    {
+        if (!fragment_data[i])
+            return -2;
+        total_len += fragment_lens[i];
+    }
+
+    char *assembled = malloc(total_len);
+    if (!assembled)
+        return -3;
+
+    size_t offset = 0;
+    for (int i = 0; i < expected_fragments; i++)
+    {
+        memcpy(assembled + offset, fragment_data[i], fragment_lens[i]);
+        offset += fragment_lens[i];
+    }
+
+    *out_buf = assembled;
+    *out_len = total_len;
+    return 0;
+}
+
+/**
+ * Verifies the signature on a received configuration buffer.
+ */
+int Verify_Config_Signature(const char *buf, size_t len)
+{
+    if (len < sizeof(uint32_t))
+        return -1;
+
+    uint32_t sig_len;
+    memcpy(&sig_len, buf, sizeof(uint32_t));
+    if (len < sizeof(uint32_t) + sig_len)
+        return -2;
+
+    unsigned char *signature = (unsigned char *)(buf + sizeof(uint32_t));
+    const char *yaml_data = buf + sizeof(uint32_t) + sig_len;
+    size_t yaml_len = len - (sizeof(uint32_t) + sig_len);
+
+    EVP_PKEY *pubkey = load_key_from_file("cm_keys/public_key.pem", 0);
+    if (!pubkey)
+        return -3;
+
+    int valid = verify_buffer((unsigned char *)yaml_data, yaml_len, signature, sig_len, pubkey);
+    EVP_PKEY_free(pubkey);
+
+    return valid == 0 ? 0 : -4;
+}
+
+/**
+ * Parses, processes, and saves a verified YAML configuration buffer.
+ */
+int Handle_Verified_Config(const char *buf, size_t len)
+{
+    uint32_t sig_len;
+    memcpy(&sig_len, buf, sizeof(uint32_t));
+    const char *yaml_data = buf + sizeof(uint32_t) + sig_len;
+    size_t yaml_len = len - (sizeof(uint32_t) + sig_len);
+
+    struct config *cfg = load_yaml_config_from_string(yaml_data, yaml_len);
+    if (!cfg)
+        return -1;
+
+    if (cfg->configuration_id != Conf_ID || cfg->configuration_id <= Last_Seen_Conf_ID)
+    {
+        Alarm(PRINT, "Config_Agent: Ignoring config with id %u (expected: %u, last seen: %u)\n",
+              cfg->configuration_id, Conf_ID, Last_Seen_Conf_ID);
+        free_yaml_config(&cfg);
+        return 0;
+    }
+    ComponentFlags killed = {0};
+    ComponentFlags restarted = {0};
+    kill_all_components(&killed);
+    generate_spines_topologies(cfg);
+    struct host *me = find_host_by_name(cfg, Host_Name);
+    if (!me)
+    {
+        Alarm(PRINT, "Host '%s' not found in config. Skipping component startup.\n", Host_Name);
+        pad_killed_logs(&killed, &restarted);
+        free_yaml_config(&cfg);
+        return 0;
+    }
+
+    sleep(5);
+
+    const char *dir = "received_configs";
+    struct stat st = {0};
+    if (stat(dir, &st) == -1)
+    {
+        mkdir(dir, 0755);
+    }
+
+    // write the file out, include timestamp
+    // config_<config id>_<timestamp>.yaml
+    char filename[512];
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    snprintf(filename, sizeof(filename),
+             "%s/config_%u_%04d%02d%02d_%02d%02d%02d.yaml",
+             dir,
+             Conf_ID,
+             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+             t->tm_hour, t->tm_min, t->tm_sec);
+
+    FILE *fp = fopen(filename, "w");
+    if (!fp)
+    {
+        Alarm(PRINT, "Config_Agent: Failed to write config file to %s\n", filename);
+    }
+    else
+    {
+        fwrite(yaml_data, 1, yaml_len, fp);
+        fclose(fp);
+        Alarm(PRINT, "Config_Agent: Saved config to %s\n", filename);
+    }
+
+    // Also save a consistent copy as latest.yaml
+    FILE *latest_fp = fopen(latest_config_path, "w");
+    if (!latest_fp)
+    {
+        Alarm(PRINT, "Config_Agent: Failed to write latest config to %s\n", latest_config_path);
+    }
+    else
+    {
+        fwrite(yaml_data, 1, yaml_len, latest_fp);
+        fclose(latest_fp);
+        Alarm(PRINT, "Config_Agent: Updated %s with latest config\n", latest_config_path);
+    }
+
+    start_components_from_config(cfg, me, &restarted);
+    pad_killed_logs(&killed, &restarted);
+
+    free_yaml_config(&cfg);
+    return 0;
+}
+
+void Cleanup_Fragments(void)
+{
+    if (fragment_data)
+    {
+        for (int i = 0; i < expected_fragments; i++)
+        {
+            free(fragment_data[i]);
+        }
+        free(fragment_data);
+        fragment_data = NULL;
+    }
+
+    free(fragment_lens);
+    fragment_lens = NULL;
+
+    received_fragments = 0;
+    expected_fragments = -1;
+}
+
+static void Usage(int argc, char **argv)
+{
+    int ret;
+    int got_host_name = 0;
+
+    while (--argc > 0)
+    {
+        argv++;
+        if ((argc > 1) && (!strncmp(*argv, "-a", 2)))
+        {
+            ret = snprintf(Spines_Addr, sizeof(Spines_Addr), "%s", argv[1]);
+            if (ret < 0 || ret >= sizeof(Spines_Addr))
+            {
+                Alarm(PRINT, "Invalid Spines IP address: %s\n", argv[1]);
+                Print_Usage();
+            }
+            argc--;
+            argv++;
+        }
+        else if ((argc > 1) && (!strncmp(*argv, "-p", 2)))
+        {
+            ret = sscanf(argv[1], "%d", &Spines_Port);
+            if (ret != 1)
+            {
+                Alarm(PRINT, "Invalid Spines port: %s\n", argv[1]);
+                Print_Usage();
+            }
+            argc--;
+            argv++;
+        }
+        else if ((argc > 1) && (!strncmp(*argv, "-h", 2)))
+        {
+            ret = snprintf(Host_Name, sizeof(Host_Name), "%s", argv[1]);
+            if (ret < 0 || ret >= sizeof(Host_Name))
+            {
+                Alarm(PRINT, "Invalid host name: %s\n", argv[1]);
+                Print_Usage();
+            }
+            got_host_name = 1;
+            argc--;
+            argv++;
+        }
+        else if ((argc > 1) && (!strncmp(*argv, "-l", 2)))
+        {
+            ret = sscanf(argv[1], "%d", &log_to_file);
+            if (ret != 1 || (log_to_file != 0 && log_to_file != 1))
+            {
+                Alarm(PRINT, "Invalid log setting: %s (must be 0 or 1)\n", argv[1]);
+                Print_Usage();
+            }
+            argc--;
+            argv++;
+        }
+        else
+        {
+            Print_Usage();
+        }
+    }
+
+    if (!got_host_name)
+    {
+        Alarm(PRINT, "Missing required argument: -h host_name\n");
+        Print_Usage();
+    }
+}
+
+static void Print_Usage(void)
+{
+    Alarm(EXIT, "Usage: ./config_agent -h host_name\n"
+                "    [-a spines_addr] : IP address of Spines daemon to connect to. Default: %s\n"
+                "    [-p spines_port] : Port for Spines configuration network. Default: %d\n"
+                "    [-l log_mode]    : Log destination (0 = console, 1 = file). Default: 0\n"
+                "    -h host_name     : REQUIRED. Host name to match in config.\n",
+          DEFAULT_SPINES_ADDR, DEFAULT_SPINES_PORT);
+}
+
+/**
+ * Checks if an IP address already exists in a list of DaemonEntry structs.
+ * Iterates through the list and compares the given IP against each entry.
+ */
+static int ip_in_list(const char *ip, DaemonEntry *list, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        if (strcmp(list[i].ip, ip) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/**
+ * Appends a new DaemonEntry to the list if the IP is not already present.
+ * Assigns a new ID based on the current count and increments the count.
+ */
+static void append_daemon(DaemonEntry *list, size_t *count, const char *ip)
+{
+    if (!ip_in_list(ip, list, *count))
+    {
+        list[*count].ip = ip;
+        list[*count].id = (unsigned)(*count + 1);
+        (*count)++;
+    }
+}
+
+/**
+ * Writes a Spines topology file with host and edge definitions.
+ */
+static void write_topology_file(const char *output_path, DaemonEntry *hosts, size_t host_count, FILE *base_fp)
+{
+    FILE *out = fopen(output_path, "w");
+    if (!out)
+    {
+        perror("Failed to open output file");
+        return;
+    }
+
+    // Copy base config from base_spines.conf to output
+    fseek(base_fp, 0, SEEK_SET);
+    char line[1024];
+    while (fgets(line, sizeof(line), base_fp))
+    {
+        fputs(line, out);
+    }
+
+    // Write Hosts section
+    fprintf(out, "\nHosts {\n");
+    for (size_t i = 0; i < host_count; i++)
+    {
+        fprintf(out, "    %u %s\n", hosts[i].id, hosts[i].ip);
+    }
+    fprintf(out, "}\n\n");
+
+    // Write full mesh Edges section
+    fprintf(out, "Edges {\n");
+    for (size_t i = 0; i < host_count; i++)
+    {
+        for (size_t j = i + 1; j < host_count; j++)
+        {
+            fprintf(out, "    %u %u 100\n", hosts[i].id, hosts[j].id);
+        }
+    }
+    fprintf(out, "}\n");
+
+    fclose(out);
+}
+
+/**
+ * Writes Spines public and (if applicable) private key files for a given daemon.
+ */
+static void write_spines_keys(const char *key_dir, int id,
+                              const char *public_key,
+                              const char *encrypted_private_key,
+                              const char *perm_key_loc,
+                              bool is_local_host)
+{
+    char path[512];
+    FILE *fp;
+
+    // Write public key
+    snprintf(path, sizeof(path), "%s/public%d.pem", key_dir, id);
+    if ((fp = fopen(path, "w")))
+    {
+        fputs(public_key, fp);
+        fclose(fp);
+    }
+    else
+    {
+        perror("fopen public key");
+    }
+
+    // Write private key only if on local host and encrypted key is present
+    if (is_local_host && encrypted_private_key)
+    {
+        EVP_PKEY *rsa_privkey = load_key_from_file(perm_key_loc, 1);
+        if (!rsa_privkey)
+        {
+            fprintf(stderr, "[ERROR] Could not load TPM key from %s\n", perm_key_loc);
+            return;
+        }
+
+        EVP_PKEY *decrypted_key = load_decrypted_key(encrypted_private_key, rsa_privkey);
+        EVP_PKEY_free(rsa_privkey);
+
+        if (!decrypted_key)
+        {
+            fprintf(stderr, "[ERROR] Failed to decrypt private key for id %d\n", id);
+            return;
+        }
+
+        char *pem = get_private_key(decrypted_key);
+        EVP_PKEY_free(decrypted_key);
+
+        if (!pem)
+        {
+            fprintf(stderr, "[ERROR] Failed to serialize decrypted private key for id %d\n", id);
+            return;
+        }
+
+        snprintf(path, sizeof(path), "%s/private%d.pem", key_dir, id);
+        if ((fp = fopen(path, "w")))
+        {
+            fputs(pem, fp);
+            fclose(fp);
+        }
+        else
+        {
+            perror("fopen private key");
+        }
+
+        free(pem);
+    }
+}
+
+void generate_spines_topologies(const struct config *cfg)
+{
+    DaemonEntry internal_daemons[MAX_DAEMONS];
+    DaemonEntry external_core[MAX_DAEMONS];
+    DaemonEntry external_clients[MAX_DAEMONS];
+    size_t internal_count = 0, core_count = 0, client_count = 0;
+
+    int internal_id = 0;
+    int external_id = 0;
+
+    for (unsigned i = 0; i < cfg->sites_count; i++)
+    {
+        struct site *site = &cfg->sites[i];
+
+        for (unsigned j = 0; j < site->hosts_count; j++)
+        {
+            struct host *h = &site->hosts[j];
+            int is_local = (strcmp(h->name, Host_Name) == 0);
+
+            // ---- Internal Daemon Handling ----
+            if (h->runs_spines_internal)
+            {
+                append_daemon(internal_daemons, &internal_count, h->ip);
+                internal_id = internal_count;
+
+                write_spines_keys(spines_internal_key_dir, internal_id,
+                                  h->spines_internal_public_key,
+                                  h->encrypted_spines_internal_private_key,
+                                  h->permanent_key_location,
+                                  is_local);
+            }
+
+            // ---- External Daemon Handling ----
+            if (h->runs_spines_external)
+            {
+                if (site->type == CLIENT)
+                {
+                    append_daemon(external_clients, &client_count, h->ip);
+                    external_id = core_count + client_count;
+                }
+                else
+                {
+                    append_daemon(external_core, &core_count, h->ip);
+                    external_id = core_count;
+                }
+
+                write_spines_keys(spines_external_key_dir, external_id,
+                                  h->spines_external_public_key,
+                                  h->encrypted_spines_external_private_key,
+                                  h->permanent_key_location,
+                                  is_local);
+            }
+        }
+    }
+
+    // ----- INTERNAL TOPOLOGY -----
+    FILE *base_fp = fopen(BASE_SPINES_CONFIG, "r");
+    if (!base_fp)
+    {
+        perror("Failed to open base config");
+        return;
+    }
+
+    write_topology_file(SPINES_INT_FILE, internal_daemons, internal_count, base_fp);
+    fclose(base_fp);
+
+    // ----- EXTERNAL TOPOLOGY -----
+    FILE *out = fopen(SPINES_EXT_FILE, "w");
+    if (!out)
+    {
+        perror("Failed to open spines_ext.conf");
+        return;
+    }
+
+    base_fp = fopen(BASE_SPINES_CONFIG, "r");
+    if (!base_fp)
+    {
+        perror("Failed to reopen base config");
+        fclose(out);
+        return;
+    }
+
+    char line[1024];
+    while (fgets(line, sizeof(line), base_fp))
+        fputs(line, out);
+    fclose(base_fp);
+
+    fprintf(out, "\nHosts {\n");
+    for (size_t i = 0; i < core_count; i++)
+        fprintf(out, "    %zu %s\n", i + 1, external_core[i].ip);
+    for (size_t i = 0; i < client_count; i++)
+        fprintf(out, "    %zu %s\n", core_count + i + 1, external_clients[i].ip);
+    fprintf(out, "}\n\n");
+
+    fprintf(out, "Edges {\n");
+    // Full mesh among core
+    for (size_t i = 0; i < core_count; i++)
+    {
+        for (size_t j = i + 1; j < core_count; j++)
+            fprintf(out, "    %zu %zu 100\n", i + 1, j + 1);
+    }
+
+    // Core → client connections
+    for (size_t i = 0; i < core_count; i++)
+    {
+        for (size_t j = 0; j < client_count; j++)
+            fprintf(out, "    %zu %zu 100\n", i + 1, core_count + j + 1);
+    }
+
+    fprintf(out, "}\n");
+    fclose(out);
+}
+
+/**
+ * Checks if a process name matches a known component (spines, prime, or scada_master).
+ */
+int is_target_process(const char *name)
+{
+    const char *targets[] = {"spines", "prime", "scada_master", "pnnl_hmi", "ems_hmi", "jhu_hmi", "proxy", "benchmark"};
+    const int num_targets = sizeof(targets) / sizeof(targets[0]);
+    for (int i = 0; i < num_targets; i++)
+    {
+        if (strcmp(name, targets[i]) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/*
+ * Appends 50 blank lines and a "killed" marker to the specified log file.
+ * Used to visibly separate log output from a component that was terminated.
+ */
+void pad_log(const char *path, const char *name)
+{
+    if (access(path, F_OK) != 0)
+        return; // file does not exist, skip
+
+    FILE *fp = fopen(path, "a");
+    if (!fp)
+    {
+        return; // could not open for append, skip
+    }
+
+    setvbuf(fp, NULL, _IONBF, 0);
+
+    for (int i = 0; i < 50; i++)
+        fputc('\n', fp);
+
+    fprintf(fp, "[KILLED BY CONFIG AGENT] %s\n", name);
+    fclose(fp);
+}
+
+/*
+ * Pads the logs of any components that were killed but not restarted.
+ * This provides a clear visual delimiter in their log files indicating termination.
+ */
+void pad_killed_logs(const ComponentFlags *killed, const ComponentFlags *restarted)
+{
+    if (killed->prime && !restarted->prime)
+        pad_log("/app/spire/prime/bin/logs/prime.log", "prime");
+    if (killed->scada_master && !restarted->scada_master)
+        pad_log("/app/spire/prime/bin/logs/sm.log", "scada_master");
+    if (killed->jhu_hmi && !restarted->jhu_hmi)
+        pad_log("/app/spire/prime/bin/logs/jhu_hmi.log", "jhu_hmi");
+    if (killed->pnnl_hmi && !restarted->pnnl_hmi)
+        pad_log("/app/spire/prime/bin/logs/pnnl_hmi.log", "pnnl_hmi");
+    if (killed->ems_hmi && !restarted->ems_hmi)
+        pad_log("/app/spire/prime/bin/logs/ems_hmi.log", "ems_hmi");
+    if (killed->proxy && !restarted->proxy)
+        pad_log("/app/spire/prime/bin/logs/proxy.log", "proxy");
+    if (killed->benchmark && !restarted->benchmark)
+        pad_log("/app/spire/prime/bin/logs/benchmark.log", "benchmark");
+}
+
+/**
+ * Scans all running processes and forcibly terminates known system components with the exception of any spines control daemons.
+ */
+int kill_all_components(ComponentFlags *flags)
+{
+    DIR *proc_dir = opendir("/proc");
+    struct dirent *entry;
+    int killed = 0;
+
+    if (!proc_dir)
+    {
+        perror("opendir /proc");
+        return -1;
+    }
+
+    // iterate through all of proc
+    while ((entry = readdir(proc_dir)) != NULL)
+    {
+        // considering only directories (pids are dirs)
+        if (entry->d_type != DT_DIR)
+            continue;
+
+        // dir name to pid
+        pid_t pid = atoi(entry->d_name);
+        if (pid <= 0)
+            continue;
+
+        // construct a path
+        char comm_path[64];
+        snprintf(comm_path, sizeof(comm_path), "/proc/%d/comm", pid);
+
+        // open the file to read the process name
+        FILE *comm_file = fopen(comm_path, "r");
+        if (!comm_file)
+            continue; // couldnt open
+
+        char comm[256];
+        if (fgets(comm, sizeof(comm), comm_file))
+        {
+            // rm newline
+            comm[strcspn(comm, "\n")] = 0;
+
+            // if is a target process
+            if (is_target_process(comm))
+            {
+                int skip = 0;
+
+                // Special case: only skip spines if it's running spines_ctrl.conf
+                if (strcmp(comm, "spines") == 0)
+                {
+                    char cmdline_path[64];
+                    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
+                    FILE *cmdline_file = fopen(cmdline_path, "r");
+                    if (cmdline_file)
+                    {
+                        char cmdline[1024];
+                        size_t len = fread(cmdline, 1, sizeof(cmdline) - 1, cmdline_file);
+                        fclose(cmdline_file);
+
+                        if (len > 0)
+                        {
+                            cmdline[len] = '\0';
+
+                            // Replace nulls with spaces to log clearly
+                            for (size_t i = 0; i < len; i++)
+                            {
+                                if (cmdline[i] == '\0')
+                                    cmdline[i] = ' ';
+                            }
+
+                            if (strstr(cmdline, "spines_ctrl") != NULL)
+                            {
+                                skip = 1;
+                            }
+                        }
+                    }
+                }
+
+                if (skip)
+                {
+                    // printf("Skipping %s (PID %d) — spines_ctrl.conf detected\n", comm, pid);
                     continue;
-		}
-		if(type==SM_TC_PVT || type == PRIME_TC_PVT){
-                    if(needed_keys_ids[pvt_header->id +1 ]!= 1){
-                        curr_idx+=sizeof(pvt_key_header);
-                        curr_idx+= pvt_header->pvt_key_parts*pvt_header->pvt_key_part_size;
-                        continue;
-                    }else{
-			dec_key_id=pvt_header->id +1;	
-			Alarm(DEBUG, "Decrypt pvt key =%d\n",pvt_header->id+1);
-		    }
                 }
-                if(type == PRIME_RSA_PVT){
-                    if(needed_keys_ids[pvt_header->id] != 1){
-                        curr_idx+=sizeof(pvt_key_header);
-                        curr_idx+= pvt_header->pvt_key_parts*pvt_header->pvt_key_part_size;
-                        continue;
-                    }else{
-		    	dec_key_id=pvt_header->id;
-			Alarm(DEBUG, "Decrypt pvt key =%d\n",pvt_header->id);
-			}
+
+                if (kill(pid, SIGTERM) == 0)
+                {
+                    printf("Killed %s (PID %d)\n", comm, pid);
+                    killed++;
+
+                    if (strcmp(comm, "prime") == 0)
+                        flags->prime = 1;
+                    else if (strcmp(comm, "scada_master") == 0)
+                        flags->scada_master = 1;
+                    else if (strcmp(comm, "jhu_hmi") == 0)
+                        flags->jhu_hmi = 1;
+                    else if (strcmp(comm, "pnnl_hmi") == 0)
+                        flags->pnnl_hmi = 1;
+                    else if (strcmp(comm, "ems_hmi") == 0)
+                        flags->ems_hmi = 1;
+                    else if (strcmp(comm, "proxy") == 0)
+                        flags->proxy = 1;
+                    else if (strcmp(comm, "benchmark") == 0)
+                        flags->benchmark = 1;
                 }
-                curr_idx+=sizeof(pvt_key_header);
-                char *curr_dec_key;
-                curr_dec_key=malloc(pvt_header->unenc_size);
-                full_decrypt(dec_key_id,pvt_header->pvt_key_parts,pvt_header->pvt_key_part_size,pvt_header->unenc_size,pvt_header+1,curr_dec_key);
-                write_to_file(pvt_header->key_type,pvt_header->id,pvt_header->unenc_size,curr_dec_key);
-                free(curr_dec_key);
-                curr_idx+= pvt_header->pvt_key_parts*pvt_header->pvt_key_part_size;
-            
+                else
+                {
+                    perror("kill");
+                }
             }
-            else{
-                Alarm(DEBUG,"Unexpected key type %d\n",type);
+        }
+
+        fclose(comm_file); // close file
+    }
+
+    closedir(proc_dir); // close proc
+    return killed;      // return number of killed processes
+}
+
+void start_components_from_config(const struct config *cfg, const struct host *me, ComponentFlags *restarted)
+{
+    char cmd[1024];
+
+    if (me->runs_spines_internal)
+    {
+        Alarm(PRINT, "Starting internal Spines on %s:%d\n", me->ip, SPINES_PORT);
+        snprintf(cmd, sizeof(cmd),
+                 "cd ../../spines/daemon && ./spines -p %d -c spines_int.conf -I %s -kd %s > ../../prime/bin/logs/spines_int.log 2>/dev/null &",
+                 SPINES_PORT, me->ip, spines_internal_key_dir);
+        system(cmd);
+        restarted->spines_int = 1;
+    }
+
+    if (me->runs_spines_external)
+    {
+        Alarm(PRINT, "Starting external Spines on %s:%d\n", me->ip, SPINES_EXT_PORT);
+        snprintf(cmd, sizeof(cmd),
+                 "cd ../../spines/daemon && ./spines -p %d -c spines_ext.conf -I %s -kd %s > ../../prime/bin/logs/spines_ext.log 2>/dev/null &",
+                 SPINES_EXT_PORT, me->ip, spines_external_key_dir);
+        system(cmd);
+        restarted->spines_ext = 1;
+    }
+
+    // give spines time to start
+    if (restarted->spines_ext || restarted->spines_int)
+    {
+        sleep(3);
+    }
+
+    for (unsigned i = 0; i < cfg->sites_count; i++)
+    {
+        struct site *site = &cfg->sites[i];
+
+        for (unsigned j = 0; j < site->replicas_count; j++)
+        {
+            struct replica *r = &site->replicas[j];
+            struct host *rep_host = find_host_by_name(cfg, r->host);
+
+            if (rep_host == me)
+            {
+                snprintf(cmd, sizeof(cmd),
+                         "./prime -i %u -g %u %s &",
+                         r->instance_id, r->instance_id,
+                         log_to_file ? "> logs/prime.log 2>/dev/null" : "2>/dev/null");
+                system(cmd);
+                Alarm(PRINT, "Starting replica (site %u, instance %u)\n", i, r->instance_id);
+                snprintf(cmd, sizeof(cmd),
+                         "cd ../../scada_master && ./scada_master %u %u %s &",
+                         r->instance_id, r->instance_id,
+                         //  log_to_file ? "> ../prime/bin/logs/sm.log" : "");
+                         log_to_file ? "> ../prime/bin/logs/sm.log 2>/dev/null" : "2>/dev/null");
+                system(cmd);
+                restarted->prime = 1;
+                restarted->scada_master = 1;
             }
-         }
-         if(recvd_key_frags_count==total_key_frags){
-               Alarm(DEBUG,"set send_config flag\n");
-		send_config =1;
-	}
-         if(send_config){
-		sp_time timeout;
-		timeout.sec=1;
-		timeout.usec=0;
-             	E_queue(send_to_app,0,NULL,timeout);
-		timeout.sec=10;
-		timeout.usec=0;
-             	E_queue(repeat_broadcast,0,NULL,timeout);
-		}
-    }
-    else{
-        Alarm(DEBUG, "mess type %d on ctrl spines - not expected\n",mess->type);
-    }
+        }
 
-    } //ret>0 on ctrl spines
+        if (site->type == CLIENT)
+        {
+            for (unsigned j = 0; j < site->clients_count; j++)
+            {
+                struct client *c = &site->clients[j];
+                struct host *client_host = find_host_by_name(cfg, c->host);
+
+                if (client_host == me && c->type)
+                {
+                    if (strcmp(c->type, "JHU") == 0)
+                    {
+                        Alarm(PRINT, "Starting JHU HMI client (id %u)\n", c->client_id);
+                        restarted->jhu_hmi = 1;
+                    }
+                    else if (strcmp(c->type, "PNNL") == 0)
+                    {
+                        Alarm(PRINT, "Starting PNNL HMI client (id %u)\n", c->client_id);
+                        restarted->pnnl_hmi = 1;
+                    }
+                    else if (strcmp(c->type, "EMS") == 0)
+                    {
+                        Alarm(PRINT, "Starting EMS HMI client (id %u)\n", c->client_id);
+                        restarted->ems_hmi = 1;
+                    }
+                    else if (strcmp(c->type, "proxy") == 0)
+                    {
+                        Alarm(PRINT, "Starting proxy client (id %u)\n", c->client_id);
+                        restarted->proxy = 1;
+                    }
+                    else if (strcmp(c->type, "benchmark") == 0)
+                    {
+                        Alarm(PRINT, "Starting benchmark client (id %u)\n", c->client_id);
+                        restarted->benchmark = 1;
+                    }
+                    else
+                    {
+                        Alarm(PRINT, "Unknown client type '%s' for client %u — skipping\n", c->type, c->client_id);
+                        continue;
+                    }
+
+                    if (strcmp(c->type, "JHU") == 0)
+                        snprintf(cmd, sizeof(cmd), "cd ../../hmis/jhu_hmi/ && ./jhu_hmi %s &",
+                                 log_to_file ? "> ../../prime/bin/logs/jhu_hmi.log 2>/dev/null" : "2>/dev/null");
+                    else if (strcmp(c->type, "PNNL") == 0)
+                        snprintf(cmd, sizeof(cmd), "cd ../../hmis/pnnl_hmi/ && ./pnnl_hmi %s &",
+                                 log_to_file ? "> ../../prime/bin/logs/pnnl_hmi.log 2>/dev/null" : "2>/dev/null");
+                                //  log_to_file ? "> ../../prime/bin/logs/pnnl_hmi.log" : "");
+                    else if (strcmp(c->type, "EMS") == 0)
+                        snprintf(cmd, sizeof(cmd), "cd ../../hmis/ems_hmi/ && ./ems_hmi %s &",
+                                 log_to_file ? "> ../../prime/bin/logs/ems_hmi.log 2>/dev/null" : "2>/dev/null");
+                    else if (strcmp(c->type, "proxy") == 0)
+                        snprintf(cmd, sizeof(cmd), "cd ../../proxy/ && ./proxy %u 1 %s &",
+                                 c->client_id, log_to_file ? "> ../prime/bin/logs/proxy.log 2>/dev/null" : "2>/dev/null");
+                                //  c->client_id, log_to_file ? "> ../prime/bin/logs/proxy.log" : "");
+                    else if (strcmp(c->type, "benchmark") == 0)
+                        snprintf(cmd, sizeof(cmd), "cd ../../benchmark/ && ./benchmark %u 1000000 100 %s &",
+                                 c->client_id, log_to_file ? "> ../prime/bin/logs/benchmark.log 2>/dev/null" : "2>/dev/null");
+
+                    system(cmd);
+                }
+            }
+        }
+    }
 }
-
-void Init_CA_Network()
-{
-    char *ctrl_spines_addr=sm_addr;
-
-    ctrl_spines=Spines_Sock(ctrl_spines_addr, CONFIGUATION_SPINES_PORT, SPINES_PRIORITY,CTRL_BASE_PORT+My_ID);
-    if (ctrl_spines < 0 ) {
-        Alarm(EXIT, "Config Angent: Error setting up control spines network, exiting\n");
-    }
-    
-    Alarm(PRINT, "Config Agent: Connected to control spines\n");
-   /* 
-   name.sin_family = AF_INET;
-    name.sin_addr.s_addr = htonl(INADDR_ANY);
-    name.sin_port = htons(CTRL_SPINES_MCAST_PORT);
-    if(spines_bind(ctrl_spines, (struct sockaddr *)&name, sizeof(name) ) < 0) {
-      Alarm(EXIT,"Config Agent: bind error \n");
-    }
-   */
-   mreq.imr_multiaddr.s_addr = inet_addr(CONF_SPINES_MCAST_ADDR);
-   mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-
-   if(spines_setsockopt(ctrl_spines, IPPROTO_IP, SPINES_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) < 0) {
-        Alarm(EXIT,"Mcast: problem in setsockopt to join multicast address");
-      }
-    Alarm(PRINT, "Mcast setup done\n");
-    config_ipc_inject=IPC_DGram_SendOnly_Sock();
-       if(config_ipc_inject<0)
-            Alarm(EXIT, "Config Agent: failed to set up IPC to inject config message\n");
-
-       Alarm(PRINT, "Config Agent: Set up IPC to inject config message\n");
-
-}
-
-
-void Usage(int argc, char **argv)
-{
-    int i,id,id_loc,sm_node_count;
-    counter=0;
-    VAR.Num_Servers= (3*NUM_F) + (2*NUM_K) + 1; 
-    if(argc <5) {
-        printf("Usage with Driver/Scada Master: ./config_agent id MyCtrlSpineAddr app_path s Count sm_id1 sm_id2 .... sm_idN\n"
-		"Usage with other app (Benchmarks, Proxy and HMIs) : ./config_agent id MyCtrlSpineAddr app_path p Count\n"
-		"Note: id is just for control agent, it is unique 1...N\n"
-		"Note: app_path is ipc path by default the app path to driver is /tmp/ca_driver_ipc");
-        exit(EXIT_FAILURE);
-    }
-
-    curr_config = 0;
-    total_key_frags = 0;
-    send_config = 0;
-    SM_Flag = 0;
-    NON_SM_Flag = 0;
-    app_count = 0;
-    memset(app_path,0,sizeof(app_path));
-    memset(sm_node_ids,0,sizeof(sm_node_ids));
-    memset(needed_keys_ids,0,sizeof(needed_keys_ids));
-    curr_config_msg = (signed_message *)malloc(sizeof(signed_message)+sizeof(nm_message));
-    memset(curr_config_msg,0,sizeof(signed_message)+sizeof(nm_message));
-    for (i=0;i<10;i++){
-	key_messages[i]=NULL;
-	}
-    
-    sscanf(argv[1],"%d",&My_ID);
-    sprintf(sm_addr, "%s", argv[2]);
-    sprintf(app_path,"%s",argv[3]);
-    
-    if(*argv[4]=='s'){
-	Alarm(DEBUG,"Config agent is running on Driver or Scada Master node\n");
-	SM_Flag =1;
-        sscanf(argv[5],"%d",&sm_node_count);
-	assert(sm_node_count>0 && sm_node_count< MAX_NUM_SERVER_SLOTS);
-	Alarm(PRINT,"I run %d Prime Nodes",sm_node_count);
-	id_loc=6;	
-        for(i=1;i<=sm_node_count;i++){
-	    sscanf(argv[id_loc],"%d",&id);
-	    id_loc+=1;
-	    sm_node_ids[id]=1;
-	    Alarm(PRINT,"My node runs prime id =%d\n",id);
-	}
-    }else if(*argv[4]=='p'){
-	NON_SM_Flag =1;
-    	sscanf(argv[5], "%d", &app_count);
-	Alarm(PRINT,"Applications count=%d\n",app_count);
-    }else{
-   	Alarm(EXIT,"Unknown node type %c\n",*argv[4]); 
-	}
-}
-
-

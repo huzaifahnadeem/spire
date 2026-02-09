@@ -49,14 +49,19 @@ CC            = gcc
 CXX           = g++
 CFLAGS       += -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
 CXXFLAGS     += -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
-INCPATH       = -I. -I ../prime/stdutil/include -I ../spines/libspines/ -I ../spines/libspread-util/include -I ../common
+INCPATH       = -I. -I ../prime/src -I ../prime/stdutil/include -I ../spines/libspines/ -I ../spines/libspread-util/include -I ../common -I ../config
 LINK          = g++
 LFLAGS        = -Wl,-O1
-LIBS          = $(SUBLIBS) -lpthread \
-				../prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
-				../spines/libspines/libspines.a ../prime/stdutil/lib/libstdutil.a \
-				../spines/libspread-util/src/libspread-util.a \
-				-lrt -ldl -lm -lcrypto
+
+INCPATH += -I../prime/libcyaml/include
+LIBCYAML = ../prime/libcyaml/build/release/libcyaml.a
+
+LIBS 	= $(SUBLIBS) -lpthread \
+			../prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
+			../spines/libspines/libspines.a ../prime/stdutil/lib/libstdutil.a \
+			../spines/libspread-util/src/libspread-util.a \
+			-lrt -ldl -lm -lcrypto $(LIBCYAML) -lyaml
+
 TARGET	  = benchmark  
 OBJECTS   = benchmark.o \
                 ../common/scada_packets.o \
@@ -66,8 +71,10 @@ OBJECTS   = benchmark.o \
                 ../common/itrc.o \
 				../common/key_value.o \
             	../config/cJSON.o \
-            	../config/config_helpers.o
-
+            	../config/config_helpers.o \
+				../prime/src/config_utils.o \
+				../prime/src/parser.o \
+				../prime/src/key_generation.o
 
 .SUFFIXES: .o .c .cpp
 

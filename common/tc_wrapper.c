@@ -148,6 +148,206 @@ void TC_Read_Public_Key( const char *keys_dir )
     }
 }
 
+
+/**
+ * Writes the given content to a secure temporary file and returns its path.
+ * Caller is responsible for unlinking (deleting) it later.
+ *
+ * @param content Null-terminated string to write to the temp file.
+ * @param prefix File name prefix (e.g., "/tmp/tc_pubkey").
+ * @return Newly allocated string containing the path, or NULL on failure.
+ */
+char *write_temp_file(const char *prefix, const char *content) {
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%sXXXXXX", prefix);
+
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) {
+        perror("mkstemp");
+        return NULL;
+    }
+
+    FILE *fp = fdopen(fd, "w");
+    if (!fp) {
+        perror("fdopen");
+        close(fd);
+        unlink(tmp_path);
+        return NULL;
+    }
+
+    if (fputs(content, fp) == EOF) {
+        perror("fputs");
+        fclose(fp);
+        unlink(tmp_path);
+        return NULL;
+    }
+
+    fclose(fp);
+    return strdup(tmp_path);  // Must be freed later
+}
+
+/**
+ * Loads a TC_PK public key from a PEM-encoded string.
+ *
+ * Writes the string to a temporary .pem file and calls the
+ * TC_read_public_key() function, which only accepts file paths.
+ * The temp file is deleted after reading.
+ *
+ * @param pem_str PEM-encoded RSA public key string.
+ * @return Pointer to TC_PK on success, or NULL on failure.
+ */
+TC_PK *TC_read_public_key_from_string(const char *pem_str) {
+    char *tmp_path = write_temp_file("/tmp/tc_pubkey", pem_str);
+    if (!tmp_path) return NULL;
+
+    TC_PK *result = TC_read_public_key(tmp_path);
+    unlink(tmp_path);
+    free(tmp_path);
+
+    return result;
+}
+
+/**
+ * Loads a TC_IND threshold share from a PEM-encoded string.
+ *
+ * Writes the multi-key PEM string (a share) to a temporary file and calls
+ * TC_read_share(), which expects a file path. The file is removed after use.
+ *
+ * @param pem_str PEM-encoded threshold share string.
+ * @return Pointer to TC_IND on success, or NULL on failure.
+ */
+TC_IND *TC_read_share_from_string(const char *pem_str) {
+    char *tmp_path = write_temp_file("/tmp/tc_share", pem_str);
+    if (!tmp_path) return NULL;
+
+    TC_IND *share = TC_read_share(tmp_path);
+    unlink(tmp_path);
+    free(tmp_path);
+
+    return share;
+}
+
+/**
+ * Reads and decrypts the threshold private key share (partial key) for a given replica instance.
+ *
+ * The system uses threshold cryptography where each replica holds a private share of a larger key.
+ * These shares are stored encrypted in the configuration file (hybrid AES + RSA).
+ * This function locates the correct replica by its `instance_id`, loads the TPM private key
+ * for its host, decrypts the encrypted share, and loads it into the global `tc_partial_key`.
+ *
+ * @param instance_id The replica instance ID whose threshold key share is to be loaded.
+ * @param cfg         The pointer to the loaded configuration struct containing replicas and hosts.
+ * @param key_base_path Base path for tpm and cm keys
+ * 
+ */
+void TC_Read_Partial_Key_From_Config(int32u instance_id, struct config *cfg, const char *key_base_path) 
+{
+    if (!cfg) {
+        printf("Error: config pointer is NULL\n");
+        return;
+    }
+
+    for (unsigned s = 0; s < cfg->sites_count; ++s) {
+        struct site *site = &cfg->sites[s];
+
+        for (unsigned r = 0; r < site->replicas_count; ++r) {
+            struct replica *rep = &site->replicas[r];
+            if (rep->instance_id != instance_id)
+                continue;
+
+            if (!rep->host) {
+                printf("Replica %u has no associated host name\n", instance_id);
+                return;
+            }
+
+            struct host *host = find_host_by_name(cfg, rep->host);
+            char full_path[512];
+
+            if (!host || !host->permanent_key_location) {
+                printf("Could not find host for replica %u\n", rep->instance_id);
+                exit(EXIT_FAILURE);
+            }
+
+            // Prepend "prime/bin/" to the key location
+            snprintf(full_path, sizeof(full_path), "%s/%s",key_base_path, host->permanent_key_location);
+
+            EVP_PKEY *tpm_privkey = load_key_from_file(full_path, 1);
+            if (!tpm_privkey) {
+                printf("Failed to load TPM private key for host %s\n", host->name);
+                return;
+            }
+
+            if (!rep->encrypted_prime_threshold_key_share) {
+                printf("Replica %u has no encrypted threshold share in config\n", instance_id);
+                EVP_PKEY_free(tpm_privkey);
+                return;
+            }
+
+            char *enc_key_hex = NULL;
+            char *ciphertext_hex = NULL;
+            hybrid_unpack(rep->encrypted_prime_threshold_key_share, &enc_key_hex, &ciphertext_hex);
+
+            if (!enc_key_hex || !ciphertext_hex) {
+                printf("Failed to unpack encrypted key share for replica %u\n", instance_id);
+                EVP_PKEY_free(tpm_privkey);
+                free(enc_key_hex);
+                free(ciphertext_hex);
+                return;
+            }
+
+            struct HybridDecryptionResult dec = hybrid_decrypt(ciphertext_hex, enc_key_hex, tpm_privkey);
+            EVP_PKEY_free(tpm_privkey);
+            free(enc_key_hex);
+            free(ciphertext_hex);
+
+            if (!dec.plaintext) {
+                printf("Decryption failed for replica %u\n", instance_id);
+                return;
+            }
+
+            tc_partial_key = TC_read_share_from_string((const char *)dec.plaintext);
+            free(dec.plaintext);
+
+            if (!tc_partial_key) {
+                printf("Failed to parse threshold share for replica %u\n", instance_id);
+            }
+
+            return;
+        }
+    }
+
+    printf("Threshold share for replica %u not found in config\n", instance_id);
+}
+
+/**
+ * Loads the SM and Prime threshold public keys from the configuration into memory.
+ *
+ * This function extracts the threshold public keys for the SM (SCADA Master) and Prime
+ * services from the `service_keys` section of the parsed `config` object.
+ *
+ * @param cfg Pointer to the parsed system configuration structure.
+ * 
+ */
+void TC_Read_Public_Key_From_Config(struct config *cfg) 
+{
+    if (!cfg) {
+        printf("Error: config pointer is NULL\n");
+        return;
+    }
+
+    int32u nsite = 1;
+
+    if (cfg->service_keys.prime_threshold_public_key) {
+        tc_public_key[nsite] = TC_read_public_key_from_string(cfg->service_keys.prime_threshold_public_key);
+        if (!tc_public_key[nsite]) {
+            printf("Failed to load Prime threshold public key for site %u\n", nsite);
+        }
+    } else {
+        printf("Prime threshold public key missing from config\n");
+    }
+}
+
+
 int32u TC_Generate_Sig_Share( byte* destination, byte* hash  ) 
 { 
     /* Generate a signature share without the proof. */
@@ -270,8 +470,8 @@ void TC_Combine_Shares( byte *signature_dest, byte *digest )
 		tc_public_key[1]);    
     if (ret != 1){
         printf("TC_verify failed error code=%d!!\n",ret);
-    	//printf("Verified Combined Sig: %s\n", BN_bn2hex( combined_signature ));
-    	//TC_PK_Print(tc_public_key[1]);
+    	printf("Verified Combined Sig: %s\n", BN_bn2hex( combined_signature ));
+    	TC_PK_Print(tc_public_key[1]);
 	
 	}
 		//tc_public_key[VAR.My_Site_ID]); //XXX: if want to use for multi-site, will need to change this
@@ -305,34 +505,57 @@ void TC_Combine_Shares( byte *signature_dest, byte *digest )
     BN_free( hash_bn );
 }
 
-int32u TC_Verify_Signature( int32u site, byte *signature, byte *digest ) 
+int32u TC_Verify_Signature(int32u site, byte *signature, byte *digest) 
 {
-    BIGNUM *hash_bn;
-    int32u ret;
-    BIGNUM *sig_bn;
-   
+    BIGNUM *hash_bn = NULL;
+    BIGNUM *sig_bn = NULL;
+    int32u ret = 0;
+
 #if REMOVE_CRYPTO
     return 1;
 #endif
 
-    hash_bn = BN_bin2bn( digest, DIGEST_SIZE, NULL );
-    sig_bn = BN_bin2bn( signature, SIGNATURE_SIZE, NULL );
-    //printf("Signature: %s\n",BN_bn2hex( signature ));
-    //printf("Sig_bn: %s\n",BN_bn2hex( (TC_SIG)sig_bn ));
-    if ( site == 0 || site > TC_NUM_SITES ) {
-	ret = 0;
-    } else {
-	ret = TC_verify(hash_bn, sig_bn, tc_public_key[site]);
-	//printf("TC_Verify return code %d\n",ret);
-	//TC_PK_Print(tc_public_key[1]);
+    // printf("[DEBUG] --- Entered TC_Verify_Signature ---\n");
+    // printf("[DEBUG] Site = %u\n", site);
+
+    // printf("[DEBUG] Digest (first 8 bytes): ");
+    // for (int i = 0; i < 8; i++) printf("%02x ", digest[i]);
+    // printf("\n");
+
+    // printf("[DEBUG] Signature (first 8 bytes): ");
+    // for (int i = 0; i < 8; i++) printf("%02x ", signature[i]);
+    // printf("\n");
+
+    // Convert to BIGNUM
+    hash_bn = BN_bin2bn(digest, DIGEST_SIZE, NULL);
+    sig_bn = BN_bin2bn(signature, SIGNATURE_SIZE, NULL);
+
+    if (hash_bn == NULL || sig_bn == NULL) {
+        printf("[ERROR] BN_bin2bn failed: hash_bn=%p, sig_bn=%p\n", (void *)hash_bn, (void *)sig_bn);
+        goto cleanup;
     }
 
+    // printf("[DEBUG] hash_bn: %s\n", BN_bn2hex(hash_bn));
+    // printf("[DEBUG] sig_bn:  %s\n", BN_bn2hex(sig_bn));
 
-    BN_free( sig_bn );
-    BN_free( hash_bn );
+    if (site == 0 || site > TC_NUM_SITES || tc_public_key[site] == NULL) {
+        printf("[ERROR] Invalid site index (%u) or missing public key\n", site);
+        goto cleanup;
+    }
+
+    // printf("[DEBUG] Verifying with public key for site %u:\n", site);
+    // TC_PK_Print(tc_public_key[site]); // Make sure this actually prints something meaningful
+
+    ret = TC_verify(hash_bn, sig_bn, tc_public_key[site]);
+    // printf("[DEBUG] TC_verify() return value: %u\n", ret);
+
+cleanup:
+    if (sig_bn) BN_free(sig_bn);
+    if (hash_bn) BN_free(hash_bn);
 
     return ret;
 }
+
 
 int TC_Check_Share( byte* digest, int32u sender_id )
 {

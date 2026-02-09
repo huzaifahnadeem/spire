@@ -107,25 +107,25 @@
 /* List of IP addresses for Spines daemons on the external Spines network
  * connecting the control center sites with the PLC/RTU proxies and HMIs. We
  * assume there is one Spines daemon per site */
-#define SPINES_EXT_SITE_ADDRS {"192.168.101.101", \
-                               "192.168.101.102", \
-                               "192.168.101.103", \
-                               "192.168.101.104" }
+#define SPINES_EXT_SITE_ADDRS {"192.168.0.101", \
+                               "192.168.0.102", \
+                               "192.168.0.103", \
+                               "192.168.0.104" }
 
 /* List of IP addresses for Spines daemons on the internal Spines network
  * connecting all the control-center and data-center sites with one another. We
  * assume there is one Spines daemon per site */
-#define SPINES_INT_SITE_ADDRS {"192.168.101.101", \
-                               "192.168.101.102", \
-                               "192.168.101.103", \
-                               "192.168.101.104" }
+#define SPINES_INT_SITE_ADDRS {"192.168.0.101", \
+                               "192.168.0.102", \
+                               "192.168.0.103", \
+                               "192.168.0.104" }
 
 /* IP address for the Spines daemon that connects with the PLC/RTU proxy or
  * proxies */
-#define SPINES_RTU_ADDR "192.168.101.107"
+#define SPINES_RTU_ADDR "192.168.0.107"
 
 /* IP address for the Spines daemon that connects with the HMI(s) */
-#define SPINES_HMI_ADDR "192.168.101.108"
+#define SPINES_HMI_ADDR "192.168.0.108"
 
 /************************
  *    Spines defines    *
@@ -220,18 +220,18 @@
 #define SS_NUM_K 1
 
 /* IP address of machines running Spines, Subscribers, and Trip Masters */
-#define SPINES_RELAY_INT_ADDRS {"192.168.101.101", \
-                                "192.168.101.102", \
-                                "192.168.101.103", \
-                                "192.168.101.104"}
+#define SPINES_RELAY_INT_ADDRS {"192.168.0.101", \
+                                "192.168.0.102", \
+                                "192.168.0.103", \
+                                "192.168.0.104"}
 
-#define SPINES_RELAY_EXT_ADDRS {"192.168.101.101", \
-                                "192.168.101.102", \
-                                "192.168.101.103", \
-                                "192.168.101.104"}
+#define SPINES_RELAY_EXT_ADDRS {"192.168.0.101", \
+                                "192.168.0.102", \
+                                "192.168.0.103", \
+                                "192.168.0.104"}
 
 /* IP address of destination proxy machine (external spines) connected to Circuit Breaker */
-#define SPINES_PROXY_ADDR "192.168.101.105"
+#define SPINES_PROXY_ADDR "192.168.0.105"
 
 
 /* Interval that discretised timestamps are rounded too, in ms */

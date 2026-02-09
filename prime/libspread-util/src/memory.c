@@ -523,7 +523,7 @@ void            dispose(void *object)
 #ifndef NDEBUG
         assert(Mem[obj_type].num_obj_inuse > 0);
         assert(Mem[obj_type].num_obj > 0);
-        assert(Mem[ obj_type ].bytes_allocated >= sizeof( free_list_elem ) + head_ptr->block_len ) );
+        assert(Mem[ obj_type ].bytes_allocated >= sizeof( free_list_elem ) + head_ptr->block_len );
 	assert(Mem_Obj_Inuse > 0);
 	assert(Mem_Obj_Allocated > 0);
 	assert(Mem_Bytes_Allocated >= sizeof( free_list_elem ) + head_ptr->block_len );

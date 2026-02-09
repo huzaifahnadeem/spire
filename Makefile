@@ -48,10 +48,14 @@ include Makefile.general
 # Tells Makefile.general where we are
 base_dir=.
 
-.PHONY: all conf_spire substation core spines prime scada_master benchmark conf_core conf_scada_master libs openplc pvb iec clean_prime clean_libs clean_spire clean_substation clean
+# .PHONY: all conf_spire substation core spines prime scada_master benchmark conf_core conf_scada_master libs openplc pvb iec clean_prime clean_libs clean_spire clean_substation clean
+.PHONY: all conf_spire substation core spines prime scada_master benchmark libs openplc pvb iec clean_prime clean_libs clean_spire clean_substation clean
 
 SUBDIRS=hmis proxy modbus dnp3 benchmark plcs
+
 SS_SUBDIRS= relay_emulator proxy_iec61850 benchmarks_ss trip_master_v2 trip_master
+
+RECONF_SUBDIRS = hmis proxy dnp3 benchmark plcs modbus
 
 # Build full Spire system (note: need to build libs separately first)
 all: prime $(SUBDIRS)
@@ -74,7 +78,12 @@ substation: prime $(SS_SUBDIRS)
 	done
 
 # Build core of Spire system for benchmarking (without PLCs and HMIs)
-core: spines prime scada_master benchmark
+core: spines prime scada_master benchmark 
+
+reconfiguration: spines prime scada_master pvb $(RECONF_SUBDIRS)
+	for dir in $(RECONF_SUBDIRS); do \
+		$(MAKE) -C $$dir; \
+	done
 
 spines:
 	cd spines; ./configure; $(MAKE) -C daemon parser; $(MAKE)

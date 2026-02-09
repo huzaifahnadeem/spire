@@ -57,10 +57,14 @@ INCPATH       = -I. -I$(PVB)/pvserver -I$(PRIME)/stdutil/include \
 				-I$(SPINES)/libspines/ -I$(SPIRE)/common -I$(PRIME)/libspread-util/include
 LINK          = g++
 LFLAGS        = -Wl,-O1
+LIBCYAML = ../../prime/libcyaml/build/release/libcyaml.a
+INCPATH += -I../../prime/libcyaml/include
+
 LIBS          = $(SUBLIBS) $(PVB)/pvserver/libpvsmt.a -lpthread \
 					$(PRIME)/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
 					$(SPINES)/libspines/libspines.a $(PRIME)/stdutil/lib/libstdutil.a \
-					$(PRIME)/libspread-util/lib/libspread-util.a -lrt -ldl -lcrypto
+					$(PRIME)/libspread-util/lib/libspread-util.a \
+					-lrt -ldl -lcrypto $(LIBCYAML) -lyaml
 
 SOURCES       = heco_hmi.cpp \
 		mask1.cpp \
@@ -73,6 +77,7 @@ SOURCES       = heco_hmi.cpp \
 		$(SPIRE)/common/key_value.c \
 		$(SPIRE)/config/cJSON.c \
 		$(SPIRE)/config/config_helpers.c 
+		
 OBJECTS       = heco_hmi.o \
 		mask1.o \
         master_exec.o \
@@ -83,7 +88,11 @@ OBJECTS       = heco_hmi.o \
         $(SPIRE)/common/itrc.o \
 		$(SPIRE)/common/key_value.o \
 		$(SPIRE)/config/cJSON.o \
-		$(SPIRE)/config/config_helpers.o
+		$(SPIRE)/config/config_helpers.o \
+		$(PRIME)/src/config_utils.o \
+		$(PRIME)/src/parser.o \
+		$(PRIME)/src/key_generation.o
+
 TARGET        = heco_hmi
 
 HEADERS       = pvapp.h \

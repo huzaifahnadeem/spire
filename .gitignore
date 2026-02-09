@@ -289,3 +289,4 @@ libiec61850/.install
 #TM Keys
 trip_master_v2/tm_keys
 trip_master/tm_keys
+plcs/.DS_Store

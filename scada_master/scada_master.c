@@ -6,13 +6,13 @@
  * this file except in compliance with the License.  You may obtain a
  * copy of the License at:
  *
- * http://www.dsn.jhu.edu/spire/LICENSE.txt 
+ * http://www.dsn.jhu.edu/spire/LICENSE.txt
  *
  * or in the file ``LICENSE.txt'' found in this distribution.
  *
- * Software distributed under the License is distributed on an AS IS basis, 
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License 
- * for the specific language governing rights and limitations under the 
+ * Software distributed under the License is distributed on an AS IS basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
  * License.
  *
  * Spire is developed at the Distributed Systems and Networks Lab,
@@ -23,13 +23,13 @@
  *   Yair Amir            yairamir@cs.jhu.edu
  *   Trevor Aron          taron1@cs.jhu.edu
  *   Amy Babay            babay@pitt.edu
- *   Thomas Tantillo      tantillo@cs.jhu.edu 
- *   Sahiti Bommareddy    sahiti@cs.jhu.edu 
+ *   Thomas Tantillo      tantillo@cs.jhu.edu
+ *   Sahiti Bommareddy    sahiti@cs.jhu.edu
  *   Maher Khan           maherkhan@pitt.edu
  *
  * Major Contributors:
- *   Marco Platania       Contributions to architecture design 
- *   Daniel Qian          Contributions to Trip Master and IDS 
+ *   Marco Platania       Contributions to architecture design
+ *   Daniel Qian          Contributions to Trip Master and IDS
  *
  * Contributors:
  *   Samuel Beckley       Contributions to HMIs
@@ -37,10 +37,10 @@
  * Copyright (c) 2017-2025 Johns Hopkins University.
  * All rights reserved.
  *
- * Partial funding for Spire research was provided by the Defense Advanced 
+ * Partial funding for Spire research was provided by the Defense Advanced
  * Research Projects Agency (DARPA), the Department of Defense (DoD), and the
  * Department of Energy (DoE).
- * Spire is not necessarily endorsed by DARPA, the DoD or the DoE. 
+ * Spire is not necessarily endorsed by DARPA, the DoD or the DoE.
  *
  */
 
@@ -58,19 +58,21 @@
 #include "../common/openssl_rsa.h"
 #include "../common/net_wrapper.h"
 #include "../common/def.h"
+#include "../prime/src/def.h"
 #include "../common/itrc.h"
 #include "structs.h"
 #include "queue.h"
+#include "../prime/src/parser.h"
 
 int ipc_sock;
 itrc_data itrc_main, itrc_thread;
 
-//Arrays
-char * stat;
-p_switch * sw_arr;
-p_link * pl_arr;
-sub * sub_arr;
-p_tx * tx_arr;
+// Arrays
+char *stat;
+p_switch *sw_arr;
+p_link *pl_arr;
+sub *sub_arr;
+p_tx *tx_arr;
 
 // Storage for PNNL
 pnnl_fields pnnl_data;
@@ -78,7 +80,7 @@ pnnl_fields pnnl_data;
 // Storage for EMS
 ems_fields ems_data[EMS_NUM_GENERATORS];
 
-//size info
+// size info
 int stat_len;
 int sw_arr_len;
 int pl_arr_len;
@@ -86,10 +88,12 @@ int sub_arr_len;
 int tx_arr_len;
 int32u num_jhu_sub;
 
+char config_path[256] = "../prime/bin/received_configs/latest.yaml";
+
 /*Functions*/
 void Usage(int, char **);
 void init();
-void err_check_read(char * ret);
+void err_check_read(char *ret);
 void process();
 int read_from_rtu(signed_message *, struct timeval *);
 void read_from_hmi(signed_message *);
@@ -98,10 +102,9 @@ void apply_state(signed_message *);
 void print_state();
 int Verify_Config_msg(signed_message *);
 
-
 int main(int argc, char **argv)
 {
-    int nbytes, id, i, ret,debug_ret,debug_ret2;
+    int nbytes, id, i, ret, debug_ret, debug_ret2;
     char buf[MAX_LEN];
     char *ip;
     struct timeval t, now;
@@ -113,9 +116,26 @@ int main(int argc, char **argv)
     /*int remove_me;*/
 
     setlinebuf(stdout);
-    Init_SM_Replicas(); // call before usage to check that we get the right args for our type
 
     Usage(argc, argv);
+
+    // Load config from disk
+    struct config *cfg = load_yaml_config(config_path);
+    if (cfg == NULL)
+    {
+        printf("Failed to parse config file.\n");
+    return EXIT_FAILURE;
+    }
+
+    My_Global_Configuration_Number = cfg->configuration_id;
+    Init_SM_Replicas(cfg);
+
+    const char *int_ip, *ext_ip;
+    if (get_spines_ips_for_replica(cfg, My_ID, &int_ip, &ext_ip) != 0)
+    {
+        fprintf(stderr, "Failed to map Spines addresses for replica %d\n", My_ID);
+        exit(EXIT_FAILURE);
+    }
 
     printf("INIT\n");
     init();
@@ -134,35 +154,33 @@ int main(int argc, char **argv)
     sigemptyset(&signal_mask);
     sigaddset(&signal_mask, SIGPIPE);
     ret = pthread_sigmask(SIG_BLOCK, &signal_mask, NULL);
-    if (ret != 0) {
+    if (ret != 0)
+    {
         printf("SM_main: error in pthread_sigmask\n");
         return EXIT_FAILURE;
     }
 
     // initalize the IPC communication with the ITRC
     memset(&itrc_main, 0, sizeof(itrc_data));
-    sprintf(itrc_main.prime_keys_dir, "%s", (char *)SM_PRIME_KEYS);
-    sprintf(itrc_main.sm_keys_dir, "%s", (char *)SM_SM_KEYS);
     sprintf(itrc_main.ipc_config, "%s%d", (char *)CONFIG_AGENT, My_Global_ID);
     sprintf(itrc_main.ipc_local, "%s%d", (char *)SM_IPC_MAIN, My_Global_ID);
     sprintf(itrc_main.ipc_remote, "%s%d", (char *)SM_IPC_ITRC, My_Global_ID);
     ipc_sock = IPC_DGram_Sock(itrc_main.ipc_local);
 
     memset(&itrc_thread, 0, sizeof(itrc_data));
-    sprintf(itrc_thread.prime_keys_dir, "%s", (char *)SM_PRIME_KEYS);
-    sprintf(itrc_thread.sm_keys_dir, "%s", (char *)SM_SM_KEYS);
+
+    itrc_thread.cfg = cfg;
+
     sprintf(itrc_thread.ipc_config, "%s%d", (char *)CONFIG_AGENT, My_Global_ID);
     sprintf(itrc_thread.ipc_local, "%s%d", (char *)SM_IPC_ITRC, My_Global_ID);
     sprintf(itrc_thread.ipc_remote, "%s%d", (char *)SM_IPC_MAIN, My_Global_ID);
-    ip = strtok(argv[3], ":");
-    sprintf(itrc_thread.spines_int_addr, "%s", ip);
-    ip = strtok(NULL, ":");
-    sscanf(ip, "%d", &itrc_thread.spines_int_port);
-    if (Type == CC_TYPE) {
-        ip = strtok(argv[4], ":");
-        sprintf(itrc_thread.spines_ext_addr, "%s", ip);
-        ip = strtok(NULL, ":");
-        sscanf(ip, "%d", &itrc_thread.spines_ext_port);
+    // Set internal and external Spines addresses
+    sprintf(itrc_thread.spines_int_addr, "%s", int_ip);
+    itrc_thread.spines_int_port = SPINES_PORT;
+    if (Is_CC_Replica(My_ID))
+    {
+        sprintf(itrc_thread.spines_ext_addr, "%s", ext_ip);
+        itrc_thread.spines_ext_port = SPINES_EXT_PORT;
     }
 
     // Setup and spawn the main itrc thread
@@ -178,35 +196,41 @@ int main(int argc, char **argv)
     FD_ZERO(&mask);
     FD_SET(ipc_sock, &mask);
 
-    while(1) {
+    while (1)
+    {
 
         tmask = mask;
-        debug_ret=select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
-//	printf("debug_ret=%d\n",debug_ret);
-        if (FD_ISSET(ipc_sock, &tmask)) {
+        debug_ret = select(FD_SETSIZE, &tmask, NULL, NULL, NULL);
+        //	printf("debug_ret=%d\n",debug_ret);
+        if (FD_ISSET(ipc_sock, &tmask))
+        {
             ret = IPC_Recv(ipc_sock, buf, MAX_LEN);
             mess = (signed_message *)buf;
 
-            if (mess->type == RTU_DATA) {
+            if (mess->type == RTU_DATA)
+            {
                 id = read_from_rtu(mess, &t);
 
                 /* Separate sending correct HMI update for each scenario */
                 rtud = (rtu_data_msg *)(mess + 1);
-                if (rtud->scen_type == JHU) {
+                if (rtud->scen_type == JHU)
+                {
                     mess = PKT_Construct_HMI_Update_Msg(rtud->seq, rtud->scen_type,
-                                    stat_len, stat, t.tv_sec, t.tv_usec);
+                                                        stat_len, stat, t.tv_sec, t.tv_usec);
                 }
-                else if (rtud->scen_type == PNNL) {
+                else if (rtud->scen_type == PNNL)
+                {
                     mess = PKT_Construct_HMI_Update_Msg(rtud->seq, rtud->scen_type,
-                                RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING,
-                                (char *)(((char *)&pnnl_data) + PNNL_DATA_PADDING),
-                                t.tv_sec, t.tv_usec);
+                                                        RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING,
+                                                        (char *)(((char *)&pnnl_data) + PNNL_DATA_PADDING),
+                                                        t.tv_sec, t.tv_usec);
                 }
-                else if (rtud->scen_type == EMS) {
+                else if (rtud->scen_type == EMS)
+                {
                     mess = PKT_Construct_HMI_Update_Msg(rtud->seq, rtud->scen_type,
-                                RTU_DATA_PAYLOAD_LEN,
-                                (char *)((char *)&ems_data[id]),
-                                t.tv_sec, t.tv_usec);
+                                                        RTU_DATA_PAYLOAD_LEN,
+                                                        (char *)((char *)&ems_data[id]),
+                                                        t.tv_sec, t.tv_usec);
                     /*for(remove_me = 0; remove_me < EMS_NUM_GENERATORS; ++remove_me) {
                         printf("ID: %d Current: %d Target: %d Max: %d\n", remove_me, ems_data[remove_me].curr_generation, ems_data[remove_me].target_generation, ems_data[remove_me].max_generation);
                     }*/
@@ -215,53 +239,61 @@ int main(int argc, char **argv)
                 IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_remote);
                 free(mess);
             }
-            else if(mess->type==PRIME_OOB_CONFIG_MSG){
+            else if (mess->type == PRIME_OOB_CONFIG_MSG)
+            {
                 /*Received OOB reconf message - we forward it to ipc_config. Handled in ITRC_Master*/
                 printf("MS2022: In scada_master: PRIME OOB RECONF MESSAGE\n");
                 struct timeval reconf_t;
-                gettimeofday(&reconf_t,NULL);
-                printf("MS2022: **reconf received = %lu   %lu\n",reconf_t.tv_sec, reconf_t.tv_usec);
+                gettimeofday(&reconf_t, NULL);
+                printf("MS2022: **reconf received = %lu   %lu\n", reconf_t.tv_sec, reconf_t.tv_usec);
                 nbytes = sizeof(signed_message) + mess->len;
-                if(Verify_Config_msg(mess))
-                    debug_ret2=IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_config);
-		    if(debug_ret2!=nbytes){
-			printf("ITRC Main error sending to ipc_config\n");
-			}
+                if (Verify_Config_msg(mess))
+                    debug_ret2 = IPC_Send(ipc_sock, (void *)mess, nbytes, itrc_main.ipc_config);
+                if (debug_ret2 != nbytes)
+                {
+                    printf("ITRC Main error sending to ipc_config\n");
+                }
             }
-            else if (mess->type == HMI_COMMAND) {
+            else if (mess->type == HMI_COMMAND)
+            {
                 read_from_hmi(mess);
             }
-            else if (mess->type == BENCHMARK) {
+            else if (mess->type == BENCHMARK)
+            {
                 ben = (benchmark_msg *)(mess + 1);
                 gettimeofday(&now, NULL);
-                ben->pong_sec = 0; //now.tv_sec;
-                ben->pong_usec = 0; //now.tv_usec;
-                //printf("MS2022: In scada_master: RECEIVED BENCHMARK MESSAGE\n");
+                ben->pong_sec = 0;  // now.tv_sec;
+                ben->pong_usec = 0; // now.tv_usec;
+                // printf("MS2022: In scada_master: RECEIVED BENCHMARK MESSAGE\n");
                 IPC_Send(ipc_sock, (void *)mess, ret, itrc_main.ipc_remote);
             }
-            else if (mess->type == STATE_REQUEST) {
+            else if (mess->type == STATE_REQUEST)
+            {
                 package_and_send_state(mess);
             }
-            else if (mess->type == STATE_XFER) {
+            else if (mess->type == STATE_XFER)
+            {
                 apply_state(mess);
             }
-            else if (mess->type == SYSTEM_RESET) {
+            else if (mess->type == SYSTEM_RESET)
+            {
                 printf("Resetting State @ SM!!\n");
-                for(i = 0; i < sw_arr_len; i++)
+                for (i = 0; i < sw_arr_len; i++)
                     sw_arr[i].status = 1;
-                for(i = 0; i < tx_arr_len; i++)
+                for (i = 0; i < tx_arr_len; i++)
                     tx_arr[i].status = 1;
-                for(i = 0; i < sub_arr_len; i++)
+                for (i = 0; i < sub_arr_len; i++)
                     sub_arr[i].status = 1;
-                for(i = 0; i < pl_arr_len; i++)
+                for (i = 0; i < pl_arr_len; i++)
                     pl_arr[i].status = 1;
-                for(i = 0; i < stat_len; i++)
+                for (i = 0; i < stat_len; i++)
                     stat[i] = 1;
 
                 /* Initialize PNNL Scenario */
                 memset(&pnnl_data, 0, sizeof(pnnl_fields));
             }
-            else {
+            else
+            {
                 printf("SM_MAIN: invalid message type %d\n", mess->type);
             }
         }
@@ -270,58 +302,58 @@ int main(int argc, char **argv)
     pthread_exit(NULL);
 }
 
-
-
 int Verify_Config_msg(signed_message *mess)
 {
     config_message *c_mess;
-    if(!OPENSSL_RSA_Verify((unsigned char*)mess+SIGNATURE_SIZE,
-                sizeof(signed_message)+mess->len-SIGNATURE_SIZE,
-                (unsigned char*)mess,mess->machine_id,RSA_CONFIG_MNGR)){
+    if (!OPENSSL_RSA_Verify((unsigned char *)mess + SIGNATURE_SIZE,
+                            sizeof(signed_message) + mess->len - SIGNATURE_SIZE,
+                            (unsigned char *)mess, mess->machine_id, RSA_CONFIG_MNGR))
+    {
         printf("Config Agent: Config message signature verification failed\n");
 
         return 0;
     }
-    c_mess=(config_message *)(mess+1);
-    if (mess->global_configuration_number<=My_Global_Configuration_Number)
+    c_mess = (config_message *)(mess + 1);
+    if (mess->global_configuration_number <= My_Global_Configuration_Number)
         return 0;
     return 1;
-
 }
 
 // Usage
 void Usage(int argc, char **argv)
 {
     My_ID = 0;
-    My_Global_Configuration_Number=0;
-    PartOfConfig=1;
+    My_Global_Configuration_Number = 0;
+    PartOfConfig = 1;
 
-    if (argc < 4 || argc > 5) {
-        printf("Usage: %s GLOBAL_ID CURRENT_ID spinesIntAddr:spinesIntPort [spinesExtAddr:spinesExtPort]\n", argv[0]);
+    if (argc < 3 || argc > 5)
+    {
+        printf("Usage: %s GLOBAL_ID CURRENT_ID [-c config_file]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
     sscanf(argv[1], "%d", &My_Global_ID);
-    if (My_Global_ID < 1 || My_Global_ID > MAX_NUM_SERVER_SLOTS) {
-        printf("Invalid My_ID: %d\n", My_ID);
+    if (My_Global_ID < 1 || My_Global_ID > MAX_NUM_SERVER_SLOTS)
+    {
+        printf("Invalid Global ID: %d\n", My_Global_ID);
         exit(EXIT_FAILURE);
     }
 
     sscanf(argv[2], "%d", &My_ID);
-    if (My_ID < 1 || My_ID > NUM_SM) {
+    if (My_ID < 1 || My_ID > MAX_NUM_SERVER_SLOTS)
+    {
         printf("Invalid My_ID: %d\n", My_ID);
         exit(EXIT_FAILURE);
     }
 
-    if (Is_CC_Replica(My_ID) && argc != 5) {
-        printf("Invalid arguments...\n");
-        printf("Control Center Replicas must have internal and external spines networks specified!\n");
-        exit(EXIT_FAILURE);
-    }
-    else if (Is_CC_Replica(My_ID) > NUM_CC_REPLICA && argc != 4) {
-        printf("Invalid arguments...\n");
-        printf("Data Center Replicas should only have internal spines network specified!\n");
-        exit(EXIT_FAILURE);
+    // Optional args (e.g., -c)
+    for (int i = 4; i < argc - 1; i++)
+    {
+        if (strcmp(argv[i], "-c") == 0)
+        {
+            strncpy(config_path, argv[i + 1], sizeof(config_path) - 1);
+            config_path[sizeof(config_path) - 1] = '\0';
+        }
     }
 
     /* while (--argc > 0) {
@@ -360,12 +392,13 @@ void init()
     int i, j, num_switches, num_lines;
 
     fp = fopen("../init/ini", "r");
-    if(fp == NULL) {
+    if (fp == NULL)
+    {
         fprintf(stderr, "problems opening file. abort");
         exit(1);
     }
-    //find size of tooltip array
-    err_check_read(fgets(line, line_size, fp)); //ignore this line (comment #SIZE OF TOOLTIP ARRAY)
+    // find size of tooltip array
+    err_check_read(fgets(line, line_size, fp)); // ignore this line (comment #SIZE OF TOOLTIP ARRAY)
     err_check_read(fgets(line, line_size, fp));
     stat_len = atoi(line);
 
@@ -375,26 +408,32 @@ void init()
     sub_arr_len = 0;
     tx_arr_len = 0;
 
-    err_check_read(fgets(line, line_size, fp)); //ignore this line (comment #TOOLTIP ARRAY)
-    for(i = 0; i < stat_len; i++) {
+    err_check_read(fgets(line, line_size, fp)); // ignore this line (comment #TOOLTIP ARRAY)
+    for (i = 0; i < stat_len; i++)
+    {
         err_check_read(fgets(line, line_size, fp));
-        switch(line[0]) {
-            case '0': {
-                sub_arr_len++;
-                break;
-            }
-            case '1': {
-                tx_arr_len++;
-                break;
-            }
-            case '2': {
-                sw_arr_len++;
-                break;
-            }
-            case '3': {
-                pl_arr_len++;
-                break;
-            }
+        switch (line[0])
+        {
+        case '0':
+        {
+            sub_arr_len++;
+            break;
+        }
+        case '1':
+        {
+            tx_arr_len++;
+            break;
+        }
+        case '2':
+        {
+            sw_arr_len++;
+            break;
+        }
+        case '3':
+        {
+            pl_arr_len++;
+            break;
+        }
         }
     }
     stat = malloc(sizeof(char) * stat_len);
@@ -406,38 +445,41 @@ void init()
     memset(sub_arr, 0, sizeof(sub) * sub_arr_len);
     num_jhu_sub = sub_arr_len;
 
-    //start filling arrays
-    err_check_read(fgets(line, line_size, fp)); //ignore (comment #_____________________)
-    err_check_read(fgets(line, line_size, fp)); //ignore (10?)
-    for(i = 0; i < sub_arr_len; i++) {
-        err_check_read(fgets(line, line_size, fp)); //ignore (comment #SUB ID)
+    // start filling arrays
+    err_check_read(fgets(line, line_size, fp)); // ignore (comment #_____________________)
+    err_check_read(fgets(line, line_size, fp)); // ignore (10?)
+    for (i = 0; i < sub_arr_len; i++)
+    {
+        err_check_read(fgets(line, line_size, fp)); // ignore (comment #SUB ID)
         err_check_read(fgets(line, line_size, fp));
         sub_arr[i].id = atoi(line);
-        //set up tx
-        err_check_read(fgets(line, line_size, fp)); //ignore (comment #TX ID)
+        // set up tx
+        err_check_read(fgets(line, line_size, fp)); // ignore (comment #TX ID)
         err_check_read(fgets(line, line_size, fp));
         tx_arr[tx_cur].id = atoi(line);
         sub_arr[i].tx = tx_arr + tx_cur;
         tx_cur++;
-        //set up switches
-        err_check_read(fgets(line, line_size, fp)); //ignore (#NUMBER OF SWITCHES)
+        // set up switches
+        err_check_read(fgets(line, line_size, fp)); // ignore (#NUMBER OF SWITCHES)
         err_check_read(fgets(line, line_size, fp));
         num_switches = atoi(line);
         sub_arr[i].num_switches = num_switches;
-        err_check_read(fgets(line, line_size, fp)); //ignore (#SWITCH_IDS)
-        for(j = 0; j < num_switches; j++) {
+        err_check_read(fgets(line, line_size, fp)); // ignore (#SWITCH_IDS)
+        for (j = 0; j < num_switches; j++)
+        {
             err_check_read(fgets(line, line_size, fp));
             sw_arr[sw_cur].id = atoi(line);
             sub_arr[i].sw_list[j] = sw_arr + sw_cur;
             sw_cur++;
         }
-        //set up lines
-        err_check_read(fgets(line, line_size, fp)); //ignore (#NUMBER OF LINES)
+        // set up lines
+        err_check_read(fgets(line, line_size, fp)); // ignore (#NUMBER OF LINES)
         err_check_read(fgets(line, line_size, fp));
         num_lines = atoi(line);
         sub_arr[i].num_lines = num_lines;
-        for(j = 0; j < num_lines; j++) {
-            err_check_read(fgets(line, line_size, fp)); //ignore (#LINE INFO)
+        for (j = 0; j < num_lines; j++)
+        {
+            err_check_read(fgets(line, line_size, fp)); // ignore (#LINE INFO)
             // line id, src switch id, dest switch id, dest sub id
             err_check_read(fgets(line, line_size, fp));
             pl_arr[pl_cur].id = atoi(line);
@@ -449,43 +491,51 @@ void init()
             pl_arr[pl_cur].dest_sub = atoi(line);
             pl_arr[pl_cur].src_sub = i;
             sub_arr[i].out_lines[j] = pl_arr + pl_cur;
-            //to support bi directional links between substations only
+            // to support bi directional links between substations only
             int dest_sub = pl_arr[pl_cur].dest_sub;
-            if( i >= 1 && i <= 4 && dest_sub >=1 && dest_sub <= 4) {
+            if (i >= 1 && i <= 4 && dest_sub >= 1 && dest_sub <= 4)
+            {
                 int cur_lines;
-                //printf("Reverse Line\n");
-                //printf("Src Sub: %d, Dest Sub: %d\n", i, dest_sub);
+                // printf("Reverse Line\n");
+                // printf("Src Sub: %d, Dest Sub: %d\n", i, dest_sub);
                 cur_lines = sub_arr[dest_sub].num_in_lines;
                 sub_arr[dest_sub].in_lines[cur_lines] = pl_arr + pl_cur;
-                sub_arr[dest_sub].num_in_lines ++;
+                sub_arr[dest_sub].num_in_lines++;
             }
             pl_cur++;
         }
     }
     fclose(fp);
-    //finish up setting up lines
-    for(i = 0; i < pl_arr_len; i++) {
-        for(j = 0; j < sw_arr_len; j++) {
-            if(sw_arr[j].id == pl_arr[i].src_sw_id)
+    // finish up setting up lines
+    for (i = 0; i < pl_arr_len; i++)
+    {
+        for (j = 0; j < sw_arr_len; j++)
+        {
+            if (sw_arr[j].id == pl_arr[i].src_sw_id)
                 pl_arr[i].src_sw = sw_arr + j;
-            if(sw_arr[j].id == pl_arr[i].dest_sw_id)
+            if (sw_arr[j].id == pl_arr[i].dest_sw_id)
                 pl_arr[i].dest_sw = sw_arr + j;
         }
     }
 
-    for(i = 0; i < sw_arr_len; i++) {
+    for (i = 0; i < sw_arr_len; i++)
+    {
         sw_arr[i].status = 1;
     }
-    for(i = 0; i < tx_arr_len; i++) {
+    for (i = 0; i < tx_arr_len; i++)
+    {
         tx_arr[i].status = 1;
     }
-    for(i = 0; i < sub_arr_len; i++){
+    for (i = 0; i < sub_arr_len; i++)
+    {
         sub_arr[i].status = 1;
     }
-    for(i = 0; i < pl_arr_len; i++){
+    for (i = 0; i < pl_arr_len; i++)
+    {
         pl_arr[i].status = 1;
     }
-    for(i = 0; i < stat_len; i++) {
+    for (i = 0; i < stat_len; i++)
+    {
         stat[i] = 1;
     }
 
@@ -493,15 +543,16 @@ void init()
     memset(&pnnl_data, 0, sizeof(pnnl_fields));
 }
 
-void err_check_read(char * ret)
+void err_check_read(char *ret)
 {
-    if(ret == NULL) {
+    if (ret == NULL)
+    {
         fprintf(stderr, "read issue");
         exit(1);
     }
 }
 
-//Figure out which substations have power
+// Figure out which substations have power
 void process()
 {
     int i, j;
@@ -509,32 +560,39 @@ void process()
     /*initialize data*/
     queue_init();
     sub_arr[0].status = 1;
-    for(j = 1; j < sub_arr_len; j++)
+    for (j = 1; j < sub_arr_len; j++)
         sub_arr[j].status = 0;
-    for(j = 0; j < pl_arr_len; j++)
+    for (j = 0; j < pl_arr_len; j++)
         pl_arr[j].status = 0;
     enqueue(0);
 
-    //run bfs
-    while(!queue_is_empty()) {
-        sub * c_sub = sub_arr + dequeue();
-        if(c_sub->tx->status == 0)
+    // run bfs
+    while (!queue_is_empty())
+    {
+        sub *c_sub = sub_arr + dequeue();
+        if (c_sub->tx->status == 0)
             continue;
-        for(i = 0; i < c_sub->num_lines; i++){
-            p_link * c_link = c_sub->out_lines[i];
-            if(c_link->src_sw->status == 1 && c_link->dest_sw->status == 1) {
+        for (i = 0; i < c_sub->num_lines; i++)
+        {
+            p_link *c_link = c_sub->out_lines[i];
+            if (c_link->src_sw->status == 1 && c_link->dest_sw->status == 1)
+            {
                 c_link->status = 1;
-                if(sub_arr[c_link->dest_sub].status == 0) {
+                if (sub_arr[c_link->dest_sub].status == 0)
+                {
                     sub_arr[c_link->dest_sub].status = 1;
                     enqueue(c_link->dest_sub);
                 }
             }
         }
-        for(i = 0; i < c_sub->num_in_lines; i++){
-            p_link * c_link = c_sub->in_lines[i];
-            if(c_link->src_sw->status == 1 && c_link->dest_sw->status == 1) {
+        for (i = 0; i < c_sub->num_in_lines; i++)
+        {
+            p_link *c_link = c_sub->in_lines[i];
+            if (c_link->src_sw->status == 1 && c_link->dest_sw->status == 1)
+            {
                 c_link->status = 1;
-                if(sub_arr[c_link->src_sub].status == 0) {
+                if (sub_arr[c_link->src_sub].status == 0)
+                {
                     sub_arr[c_link->src_sub].status = 1;
                     enqueue(c_link->src_sub);
                 }
@@ -542,27 +600,29 @@ void process()
         }
     }
 
-    //check if links are broken
-    for(i = 0; i < pl_arr_len; i++){
-        if(pl_arr[i].src_sw->status == 2) {
-            //tripped line, raise alarm
-            pl_arr[i].status=2;
+    // check if links are broken
+    for (i = 0; i < pl_arr_len; i++)
+    {
+        if (pl_arr[i].src_sw->status == 2)
+        {
+            // tripped line, raise alarm
+            pl_arr[i].status = 2;
         }
     }
 
-    //put new data into status array
-    for(i = 0; i < sw_arr_len; i++)
+    // put new data into status array
+    for (i = 0; i < sw_arr_len; i++)
         stat[sw_arr[i].id] = sw_arr[i].status;
-    for(i = 0; i < pl_arr_len; i++)
+    for (i = 0; i < pl_arr_len; i++)
         stat[pl_arr[i].id] = pl_arr[i].status;
-    for(i = 0; i < sub_arr_len; i++)
+    for (i = 0; i < sub_arr_len; i++)
         stat[sub_arr[i].id] = sub_arr[i].status;
-    for(i = 0; i < tx_arr_len; i++)
+    for (i = 0; i < tx_arr_len; i++)
         stat[tx_arr[i].id] = tx_arr[i].status;
     queue_del();
 }
 
-//Read from RTU, and update data structures
+// Read from RTU, and update data structures
 int read_from_rtu(signed_message *mess, struct timeval *t)
 {
     int i;
@@ -579,10 +639,11 @@ int read_from_rtu(signed_message *mess, struct timeval *t)
     if (payload->rtu_id >= NUM_RTU || payload->seq.seq_num == 0)
         return -1;
 
-    t->tv_sec  = payload->sec;
+    t->tv_sec = payload->sec;
     t->tv_usec = payload->usec;
 
-    if (payload->scen_type == JHU) {
+    if (payload->scen_type == JHU)
+    {
         /* If we got an invalid id, we don't want to try to use it to update
          * the sub_arr. Note that we will still send an HMI update (keeping all
          * of the ordinal accounting happy), but it won't actually reflect any
@@ -590,26 +651,31 @@ int read_from_rtu(signed_message *mess, struct timeval *t)
          * as invalid at the itrc level, but we don't know how many substation
          * we have until we read the configuration file at the SCADA Master
          * level today */
-        if (payload->rtu_id >= num_jhu_sub) return 0;
+        if (payload->rtu_id >= num_jhu_sub)
+            return 0;
 
         jhf = (jhu_fields *)(payload->data);
 
-        for(i = 0; i < sub_arr[payload->rtu_id].num_switches; i++) {
-            if(jhf->sw_status[i] == 1 || jhf->sw_status[i] == 0 ||
-                    jhf->sw_status[i] == 2) {
+        for (i = 0; i < sub_arr[payload->rtu_id].num_switches; i++)
+        {
+            if (jhf->sw_status[i] == 1 || jhf->sw_status[i] == 0 ||
+                jhf->sw_status[i] == 2)
+            {
                 sub_arr[payload->rtu_id].sw_list[i]->status = jhf->sw_status[i];
             }
         }
 
-        if(jhf->tx_status == 1 || jhf->tx_status == 0)
+        if (jhf->tx_status == 1 || jhf->tx_status == 0)
             sub_arr[payload->rtu_id].tx->status = jhf->tx_status;
         process();
     }
-    else if (payload->scen_type == PNNL) {
+    else if (payload->scen_type == PNNL)
+    {
         pf = (pnnl_fields *)(payload->data);
         memcpy(&pnnl_data, pf, sizeof(pnnl_data));
     }
-    else if (payload->scen_type == EMS) {
+    else if (payload->scen_type == EMS)
+    {
         ems = (ems_fields *)(payload->data);
         memcpy(&ems_data[ems->id], ems, sizeof(ems_fields));
         return ems->id;
@@ -617,89 +683,104 @@ int read_from_rtu(signed_message *mess, struct timeval *t)
     return 0;
 }
 
-//Read PVS message, send message to DAD saying what to write
+// Read PVS message, send message to DAD saying what to write
 void read_from_hmi(signed_message *mess)
 {
-    //printf("READ FROM HMI\n");
-    //char buf[MAX_LEN];
+    // printf("READ FROM HMI\n");
+    // char buf[MAX_LEN];
     int val = 0;
     int found = 0;
     int nbytes = 0;
     int i, z;
-    //signed_message *mess;
-    //client_response_message *res;
-    //update_message *up;
+    // signed_message *mess;
+    // client_response_message *res;
+    // update_message *up;
     hmi_command_msg *payload;
     signed_message *dad_mess = NULL;
 
-    //IPC_Recv(ipc_hmi_sock, buf, MAX_LEN);
-    //mess = ((signed_message *) buf);
-    //res = (client_response_message *)(mess + 1);
-    //up = (update_message *)(mess + 1);
-    //payload = (hmi_command_msg *)(res + 1);
+    // IPC_Recv(ipc_hmi_sock, buf, MAX_LEN);
+    // mess = ((signed_message *) buf);
+    // res = (client_response_message *)(mess + 1);
+    // up = (update_message *)(mess + 1);
+    // payload = (hmi_command_msg *)(res + 1);
     payload = (hmi_command_msg *)(mess + 1);
 
-    if (payload->scen_type == JHU) {
-        switch(payload->type){
-            case TRANSFORMER: {
-                //figure out what substation the transformer belongs to
-                for(i = 0; i < sub_arr_len; i++) {
-                    if(payload->ttip_pos == sub_arr[i].tx->id) {
-                        found = 1;
-                        val = (sub_arr[i].tx->status == 0)? 1:0;
-                        dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq,
-                                    payload->scen_type, TRANSFORMER, i, i, 0, val);
-                        break;
-                    }
+    if (payload->scen_type == JHU)
+    {
+        switch (payload->type)
+        {
+        case TRANSFORMER:
+        {
+            // figure out what substation the transformer belongs to
+            for (i = 0; i < sub_arr_len; i++)
+            {
+                if (payload->ttip_pos == sub_arr[i].tx->id)
+                {
+                    found = 1;
+                    val = (sub_arr[i].tx->status == 0) ? 1 : 0;
+                    dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq,
+                                                              payload->scen_type, TRANSFORMER, i, i, 0, val);
+                    break;
                 }
-                break;
             }
-            case SWITCH: {
-                for(i = 0; i < sub_arr_len; i++) {
-                    for(z = 0; z < sub_arr[i].num_switches; z++) {
-                        if(payload->ttip_pos == sub_arr[i].sw_list[z]->id) {
-                            found = 1;
-                            //dont change anything if tripped
-                            if(sub_arr[i].sw_list[z]->status == 2)
-                                return;
-                                //return 1;
-                            val = (sub_arr[i].sw_list[z]->status==0)?1:0;
-                            dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq,
-                                        payload->scen_type, SWITCH, i, i, z, val);
-                            break;
-                        }
-                    }
-                    if(found == 1)
-                        break;
-                }
-                break;
-            }
+            break;
         }
-        if(found == 0) {
+        case SWITCH:
+        {
+            for (i = 0; i < sub_arr_len; i++)
+            {
+                for (z = 0; z < sub_arr[i].num_switches; z++)
+                {
+                    if (payload->ttip_pos == sub_arr[i].sw_list[z]->id)
+                    {
+                        found = 1;
+                        // dont change anything if tripped
+                        if (sub_arr[i].sw_list[z]->status == 2)
+                            return;
+                        // return 1;
+                        val = (sub_arr[i].sw_list[z]->status == 0) ? 1 : 0;
+                        dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq,
+                                                                  payload->scen_type, SWITCH, i, i, z, val);
+                        break;
+                    }
+                }
+                if (found == 1)
+                    break;
+            }
+            break;
+        }
+        }
+        if (found == 0)
+        {
             perror("ID from PVS not found\n");
             // Are we still required to create some kind of feedback message in
             // this case?
         }
     }
-    else if (payload->scen_type == PNNL) {
+    else if (payload->scen_type == PNNL)
+    {
         // We should probably make sure the validate function is actually
         // ensuring this before asserting it
         assert(payload->ttip_pos >= 0 && payload->ttip_pos < NUM_BREAKER);
 
-        if (payload->type == BREAKER_FLIP) {
-            val = (pnnl_data.breaker_write[payload->ttip_pos]==0)?1:0;
+        if (payload->type == BREAKER_FLIP)
+        {
+            val = (pnnl_data.breaker_write[payload->ttip_pos] == 0) ? 1 : 0;
         }
-        else if (payload->type == BREAKER_ON) {
+        else if (payload->type == BREAKER_ON)
+        {
             val = 1;
         }
-        else if (payload->type == BREAKER_OFF) {
+        else if (payload->type == BREAKER_OFF)
+        {
             val = 0;
         }
 
         dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq, payload->scen_type,
-                        BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, payload->ttip_pos, val);
+                                                  BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, payload->ttip_pos, val);
     }
-    else if (payload->scen_type == EMS) {
+    else if (payload->scen_type == EMS)
+    {
         /* payload->type is the updated Target value
          * payload->ttip_pos is the generator ID*/
         // Need to validate payload0>ttip_pos < NUM_EMS_GENERATORS
@@ -707,16 +788,17 @@ void read_from_hmi(signed_message *mess)
         printf("EMS message, gen: %d target: %d\n", payload->ttip_pos, payload->type);
 
         dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq,
-                        payload->scen_type,
-                        EMS_TARGET_SET,
-                        (EMS_RTU_ID_BASE+payload->ttip_pos),
-                        (EMS_RTU_ID_BASE+payload->ttip_pos),
-                        0, // Hardcode to 0 b/c we always write to the target, which is the first R/W Int
-                        ems_data[payload->ttip_pos].target_generation);
+                                                  payload->scen_type,
+                                                  EMS_TARGET_SET,
+                                                  (EMS_RTU_ID_BASE + payload->ttip_pos),
+                                                  (EMS_RTU_ID_BASE + payload->ttip_pos),
+                                                  0, // Hardcode to 0 b/c we always write to the target, which is the first R/W Int
+                                                  ems_data[payload->ttip_pos].target_generation);
     }
 
     /* With the message constructed (from either scenario), send it on */
-    if(dad_mess != NULL){
+    if (dad_mess != NULL)
+    {
         nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
         IPC_Send(ipc_sock, (void *)dad_mess, nbytes, itrc_main.ipc_remote);
         free(dad_mess);
@@ -735,31 +817,33 @@ void package_and_send_state(signed_message *mess)
     char state[MAX_STATE_SIZE];
 
     sr_specific = (state_request_msg *)(mess + 1);
-    assert(sr_specific->target > 0 && sr_specific->target <= NUM_SM);
-
+    assert(sr_specific->target > 0 && sr_specific->target <= Curr_num_SM);
+    
     /* Fill in the state from the sub_arr data structure */
     state_size = 0;
     slot_ptr = (sm_state *)state;
 
     /* Package up the JHU State */
-    for (i = 0; i < num_jhu_sub; i++) {
+    for (i = 0; i < num_jhu_sub; i++)
+    {
         slot_ptr->client = i;
-        slot_ptr->num_fields = 1 + sub_arr[i].num_switches;   // 1 for the transformer
+        slot_ptr->num_fields = 1 + sub_arr[i].num_switches; // 1 for the transformer
         field_ptr = (char *)(slot_ptr + 1);
-        field_ptr[0] = sub_arr[i].tx->status;                 // copy in tx status
-        for (j = 1; j <= sub_arr[i].num_switches; j++) {
-            field_ptr[j] = sub_arr[i].sw_list[j-1]->status;   // copy in each sw status
+        field_ptr[0] = sub_arr[i].tx->status; // copy in tx status
+        for (j = 1; j <= sub_arr[i].num_switches; j++)
+        {
+            field_ptr[j] = sub_arr[i].sw_list[j - 1]->status; // copy in each sw status
         }
-        state_size += sizeof(sm_state) + sizeof(char)*slot_ptr->num_fields;
-        slot_ptr = (sm_state *)(((char *)slot_ptr) + sizeof(sm_state) + sizeof(char)*slot_ptr->num_fields);
+        state_size += sizeof(sm_state) + sizeof(char) * slot_ptr->num_fields;
+        slot_ptr = (sm_state *)(((char *)slot_ptr) + sizeof(sm_state) + sizeof(char) * slot_ptr->num_fields);
     }
 
     /* Package up the PNNL State */
     slot_ptr->client = PNNL_RTU_ID;
-    slot_ptr->num_fields = 0;            /* Handled in special way for now */
+    slot_ptr->num_fields = 0; /* Handled in special way for now */
     field_ptr = (char *)(slot_ptr + 1);
     memcpy(field_ptr, (char *)(((char *)&pnnl_data) + PNNL_DATA_PADDING),
-            RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
+           RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
     state_size += sizeof(sm_state) + (RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
 
     /* pf = (pnnl_fields *)(&pnnl_data);
@@ -776,7 +860,7 @@ void package_and_send_state(signed_message *mess)
     /* sx = PKT_Construct_State_Xfer_Msg(sr_specific->target, NUM_RTU, sr_specific->latest_update,
                                         state, state_size); */
     sx = PKT_Construct_State_Xfer_Msg(sr_specific->target, num_jhu_sub + 1, sr_specific->latest_update,
-                                        state, state_size);
+                                      state, state_size);
     sx_specific = (state_xfer_msg *)(sx + 1);
     nBytes = sizeof(signed_message) + sizeof(state_xfer_msg) + sx_specific->state_size;
 
@@ -785,9 +869,9 @@ void package_and_send_state(signed_message *mess)
     assert(nBytes <= MAX_LEN);
 
     // Send this message back to the ITRC
-    IPC_Send(ipc_sock, (void* )sx, nBytes, itrc_main.ipc_remote);
+    IPC_Send(ipc_sock, (void *)sx, nBytes, itrc_main.ipc_remote);
     free(sx);
-    //print_state();
+    // print_state();
 }
 
 void apply_state(signed_message *mess)
@@ -800,12 +884,14 @@ void apply_state(signed_message *mess)
     printf("\t\tAPPLYING STATE @ SM MAIN\n");
     st = (state_xfer_msg *)(mess + 1);
 
-    if (st->target != (int32u)My_ID) {
+    if (st->target != (int32u)My_ID)
+    {
         printf("Recv state that is for %u, not my id\n", st->target);
         return;
     }
 
-    if (sizeof(signed_message) + mess->len > MAX_LEN) {
+    if (sizeof(signed_message) + mess->len > MAX_LEN)
+    {
         printf("Recv message that tried to be larger than MAX_LEN = %u, dropping!\n", MAX_LEN);
         return;
     }
@@ -815,25 +901,27 @@ void apply_state(signed_message *mess)
     slot_ptr = (sm_state *)(st + 1);
 
     /* Handle first set of clients for JHU scenario */
-    for (i = 0; i < st->num_clients - 1; i++) {
+    for (i = 0; i < st->num_clients - 1; i++)
+    {
         field_ptr = (char *)(slot_ptr + 1);
         sub_arr[slot_ptr->client].tx->status = field_ptr[0];
-        for (j = 1; j <= (slot_ptr->num_fields-1); j++) {
-            sub_arr[slot_ptr->client].sw_list[j-1]->status = field_ptr[j];
+        for (j = 1; j <= (slot_ptr->num_fields - 1); j++)
+        {
+            sub_arr[slot_ptr->client].sw_list[j - 1]->status = field_ptr[j];
         }
-        size += sizeof(sm_state) + sizeof(char)*slot_ptr->num_fields;
-        slot_ptr = (sm_state *)(((char *)slot_ptr) + sizeof(sm_state) + sizeof(char)*slot_ptr->num_fields);
+        size += sizeof(sm_state) + sizeof(char) * slot_ptr->num_fields;
+        slot_ptr = (sm_state *)(((char *)slot_ptr) + sizeof(sm_state) + sizeof(char) * slot_ptr->num_fields);
     }
 
     /* Handle the PNNL scenario - Last client*/
     field_ptr = (char *)(slot_ptr + 1);
     memcpy((char *)(((char *)&pnnl_data) + PNNL_DATA_PADDING), field_ptr,
-            RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
+           RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
     size += sizeof(sm_state) + (RTU_DATA_PAYLOAD_LEN - PNNL_DATA_PADDING);
 
     assert(size == st->state_size);
     process();
-    //print_state();
+    // print_state();
 }
 
 void print_state()
@@ -846,7 +934,8 @@ void print_state()
 
     /* Print out JHU state */
     printf("   JHU SCENARIO   \n");
-    for (i = 0; i < num_jhu_sub; i++) {
+    for (i = 0; i < num_jhu_sub; i++)
+    {
         printf("    [%u]: tx=%d sw=[", i, sub_arr[i].tx->status);
         for (j = 0; j < sub_arr[i].num_switches; j++)
             printf("%d ", sub_arr[i].sw_list[j]->status);
@@ -871,7 +960,8 @@ void print_state()
     printf("\n");
 
     /* print out EMS State */
-    for (i = 0; i < EMS_NUM_GENERATORS; ++i) {
+    for (i = 0; i < EMS_NUM_GENERATORS; ++i)
+    {
         printf("EMS Generator #%d, id: %d\n", i, ems_data[i].id);
         printf("    Max Generation: %d\n", ems_data[i].max_generation);
         printf("    Current Generation: %d\n", ems_data[i].curr_generation);

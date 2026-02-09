@@ -44,8 +44,13 @@
 
 //#include "data_structs.h"
 
+typedef uint8_t  byte;
+typedef uint32_t int32u;
+
 void TC_Read_Partial_Key( int32u server_no, int32u site_id,char *dir );
 void TC_Read_Public_Key(char *dir);
+void TC_Read_Partial_Key_From_Config(int32u instance_id, struct config *cfg);
+void TC_Read_Public_Key_From_Config(struct config *cfg);
 
 int32u TC_Generate_Sig_Share( byte* destination, byte* hash  ); 
 void TC_Initialize_Combine_Phase( int32u number );

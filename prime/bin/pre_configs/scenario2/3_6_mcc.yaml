@@ -1,0 +1,273 @@
+configuration_id: 3
+tolerated_byzantine_faults: 1
+tolerated_unavailable_replicas: 1
+service_keys: {}
+sites:
+- name: mobile_control_center
+  type: CONTROL_CENTER
+  hosts:
+  - name: goldenrod1
+    ip: 192.168.54.30
+    permanent_key_location: tpm_keys/goldenrod1_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAovuO/TljG+gBeY5dvtYi
+
+      xNQWP/YBVpPFzlWEcvt3tj40XaRW/DTyirJzuXuQMYL2GJRJkyOanwsc7LlBP/7q
+
+      G5cxngf+obbLFA1LchqqdiPF9iq2GQaAJN69UFTbilPKEQspmm6f1UdiZLyuCWXF
+
+      M6w2J1iPdJEJrPT78lmcN0Yj4p4HxhQDg2TamlrsjwhPFj36mgt2Bxvu8TelShId
+
+      PuDHOrsnYh+57qecLlxtHLRh0CzS/8blTRudBwEFlZI9RDRnhEoXnepCGryoq06B
+
+      TA8+FBm2iv29ge5P2B1HAaID62YuQsNxEPvLXNP2PD2yR56B2Z7unwZOmIXrQobM
+
+      ycqOJbYDP0JJHnL8AxtmmlYf1D67GHi13Up1aw82AkTPK1W7o0AruvNLPV8uQydB
+
+      oXLe58aKkA7UxSPgXnn65fRORCkxu887vwV7K/+r3Qw9HIF2U1g2ZvQvw2x90RNy
+
+      ilaXfs2VE/f5NRfTxD0SBX4Mlj4s/6oMQaX260TcCaKzAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: goldenrod2
+    ip: 192.168.54.31
+    permanent_key_location: tpm_keys/goldenrod2_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA2tGWtNS1gRUMAq6wFKP0
+
+      cHyOK7A7izKZKilUgUbiiCQBMPsxYQw8TwKBTP2bfPGqoGjY/cgrfbAPXiLPYJc1
+
+      9EDCz2/bqVv7c9v4yV48/SBpr5K9vsvW3Q51hWj/eLT5NrHJENLtg+UVpPdDIvSD
+
+      xMph1K53+mQGXgoID1+ff/QH00O3/j6oQDFbNfVvZ6ELSJTWnExnyZXWvoKm3lOU
+
+      YwWTpj7XJZPBiqL0F5UQ/gh5X5Vb2f6Qxlix4n1Ocd4NfkDMhQFjwnynOVMz3A7H
+
+      mut/P/mSLZNkgBLzrGzyGI5ftCPiA0mec5MUIN2yuR37Cjfxy5yVkMLhbZmtI8xs
+
+      1EkTgAdQiEiFO+6kUXuva7iokyRXFDFU01Z0lYJHP/UzFoNSNFyeRqioMr/7ZDVC
+
+      oy1Xhu+HwZ1g6UDhDFIuFBm3vaP/wJLmo9u0KlQ4Z+wfBgbGz5GRX+zisYw7MMRP
+
+      KoQos1rAdsTPOvUzfd8zUWGxOZkAz8OWqigq6mCESzPVAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: goldenrod3
+    ip: 192.168.54.32
+    permanent_key_location: tpm_keys/goldenrod3_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAoqEcJZhRuHW7QJQqxDjh
+
+      65qQhYBqO+DbkahNuyde9HH7DF3+3X/WaaJd6GaiISnGJnvZrrGR8bnAfAgWTcw8
+
+      2yebddEBviRUqPwRVNKojATnCot1aiNiaMzLP0QIUlUMA9STO+I3/baJAnDejZak
+
+      MKD1gIRoVnWLabU19qLNWXiBQAp4qujdAsH/pcRAtbxgJ0hrxRtubXfZprb00Vb+
+
+      C2fBfQrrmB9klYc3X9UvGf1/ojzbypK3z9tYQAkMZTzl6U79lpOLu57Q0W0NsCFx
+
+      EG6RVG/94IaE88YHNm3rQ9f5J/jo6EWohpLt8GnKMiXpWoN7Yks+d6icNKAgS1AF
+
+      Rz2z4oiGE9LvbJy+nwJlPqCLfWNFYwFDTM/fpKHrqTi6MQgElBIxmPjwHsKhjSVV
+
+      +TGelSa3AtebHS2JgipMTgMK/6AEuRyyNHwPl5D7346Jzw0ti9iy++IkwlTNra/I
+
+      igKLbelWwWnDTnTNUOZ0F/CVPVjBCytP/BF39654grDXAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: goldenrod4
+    ip: 192.168.54.33
+    permanent_key_location: tpm_keys/goldenrod4_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAt5lLrCwmiFK13imNrOOc
+
+      zDOGg20l9aQPwoNz+zmAwHZK9wt9f6fG+gnHtaSXDvyvX33qeW/dMMcIg8xRV3kG
+
+      5UtOFGPl8EB6chTIw3UecFpIY3SSyORfXAImIOZfRabGjM0rfEu7DjZv+Zu5eZS3
+
+      hDG2Wspj1hgnXQ1duuHJnvTIob5H8X1T2htVh4LBYkLEDn41pL1BJEr9pFCWG2ty
+
+      PCJmVhaJbA+dqhGcAzrT+dSGWHQyNd6cf02j1uqZfYVolq2lpe9VVuDmtbPJswwr
+
+      A30E3gzAgRi4NJlr9up0j6mHRtMvZajUXFv2snyOeNqRsToJabtYY3vyo1OIHFFA
+
+      zjUXSgNeKphH6OoS6kM8vCDkYJJ75efeZsipSGzvfF1JF4sDWfmPY4E0S11qpCal
+
+      m9Mf0FhYcrd62QaaWcq0vI1SvY9kQ67O7tNVwLCSawRl2Dt307kBthfeA7DYaRZK
+
+      i4aThqNO2OBD8gbhlxSY7Z7oYJ/xfk+fUSZgV0W64NTzAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: goldenrod5
+    ip: 192.168.54.34
+    permanent_key_location: tpm_keys/goldenrod5_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAup9SAMaHJNLCI2pb662l
+
+      HtcjKSmAHhvhnXnG6PWeyoY8jTB3p0oz2cl8OMcCILcus7HFeFXS7FRshzw9zLPg
+
+      R/WM0VlGTaNcuKsmWBsGesz9V6IoSgBQBbc8ImIhVe5dwE3VzvlInRhihG6+pW4c
+
+      n9wDf2GOVx1zv7r+XrNgTPeexS7Vwj2JS2es15AQeB64qUePUaGW21WUqZXhi4Zy
+
+      2wd9yz253sqKG9Np5D20htPcHniCgxAonKe2gMaw1QwQylCsf8iJVZH67xmia/Hp
+
+      epHWicrgr8K2SBKsFEaCqjIi1S6tvHPcMLG2uLk4o+mzUEzc2h6uq4WSLUBlJAQ/
+
+      NGk11Hex+6rS6+oucMA+oyg5nsQZmtuE+UEhJJfhEcsNJdykvcjqZthUf8GL+FLH
+
+      WJFScj1C9L3T8seIDiLyw838bmg5hKXys+cbcK/2p0TzI0V+DScch+Xy36dihqFs
+
+      osN8yJb6iGyIMVvimveBiGc+e6ayrwdQeun5xJzS7P5zAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: goldenrod6
+    ip: 192.168.54.35
+    permanent_key_location: tpm_keys/goldenrod6_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAtx6loiP3V2rt4cvuYbOw
+
+      70OeAlTzWOrrYuRmCQLbwGqzbkPfg8ry2xsJO1Bi+haPCnbwWs7cTPXgn/wAxG0K
+
+      Ur5nuXFNO4bJksVfbHQufXFRKGN6MKrpOi5evnvh+v4fGJwzC+yfDl6eaTFlQOO4
+
+      X7Weqlcof/zWc2u1vfwEwHHnGirrR5Kk2nDetGdi0zR8o/2djQ30+Dgp8edk5jPO
+
+      F9hqDi4wnz/pAbaT2cJIzJg7AVWPDpSxV+zQL2FKB8q9THwX21NOxRvM5aOwCzgE
+
+      BPh282ZGPPbzpQlvpm8iMRz6pKVvRVlJo+03nMyVFbcWu/rZjI8Mi8ekhW5NFc3N
+
+      IoXFW9mk3WoaA6S9Hmt2VG4CZOfOhH2R4eXapggSY9JRtI8j/OKa2ZMRjJdHHfLp
+
+      ZQtCEgx6Xqi8TYDgGJ+YnWurHOY+cap1i/kuUr3fjN4mV884CGogAmlmd7K2Vn/R
+
+      25w9PMQyewJFUjwnByYbkhp75uVfcHbGS6SzywxiOGAhAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  replicas:
+  - instance_id: 1
+    host: goldenrod1
+    spines_internal_daemon: goldenrod1
+    spines_external_daemon: goldenrod1
+  - instance_id: 2
+    host: goldenrod2
+    spines_internal_daemon: goldenrod2
+    spines_external_daemon: goldenrod2
+  - instance_id: 3
+    host: goldenrod3
+    spines_internal_daemon: goldenrod3
+    spines_external_daemon: goldenrod3
+  - instance_id: 4
+    host: goldenrod4
+    spines_internal_daemon: goldenrod4
+    spines_external_daemon: goldenrod4
+  - instance_id: 5
+    host: goldenrod5
+    spines_internal_daemon: goldenrod5
+    spines_external_daemon: goldenrod5
+  - instance_id: 6
+    host: goldenrod6
+    spines_internal_daemon: goldenrod6
+    spines_external_daemon: goldenrod6
+- name: plc_site
+  type: CLIENT
+  hosts:
+  - name: aster19
+    ip: 192.168.54.28
+    permanent_key_location: tpm_keys/aster19_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAkCkXq8Hfg5aQ2SHhpiQz
+
+      PtGwWQDcahu9jdFfSz8nEL3F4mJCX5yOc/HSo8fiqlXng4UFwyFJfErlVesSu9/N
+
+      +b6xzYJec9QOOcMQlCmpQOH2qVNp4V61ie6jTmaPUGClkuZ+kDY3Q/nbtHASltAD
+
+      JgOTmYjcW2YiikamM5JnBJnB0aF0ftCYVVXhm9mYlRZ/3CLhVH3p2L0EHUHZnxeW
+
+      jWS+GE4jBAiPSW+1ZkX1mZ9IiPtweWZ37coTLAOV4Tn2N+mKYBLfB6KvwM7w7Dwq
+
+      30w3jx9lZOP1xgWTPpLmVohIU0DlVwJVOQWsfqB2zDy8avkZp5kDPdgIZsh201L2
+
+      xIwgI5EiFbTlAWS7ko4qjmYVtosxL+LqqWk0r9nfpn2M3N8/jnYzSssVpb3e9NeW
+
+      ekJbSrLDcOfnHBMowaEkyT+wFY4sG9pKKBbs9g+LS3Tqe1l9p4A0VgxM8ZVm1ME4
+
+      MO1bHPGG6f1KiSlhbp9poP1xaXayDu8qnIfGXLdnhqTbAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 0
+    runs_spines_external: 1
+  clients:
+  - client_id: 10
+    host: aster19
+    spines_external_daemon: aster19
+    type: proxy    
+- name: hmi_site
+  type: CLIENT
+  hosts:
+  - name: aster20
+    ip: 192.168.54.29
+    permanent_key_location: tpm_keys/aster20_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAs54bLCBZFY/nApsD5QmS
+
+      u6rrLG0wi4Hj6msuqppfNWyT66fj5hZypN7jz/jxezkNjl750W4wqEdIIrfa4NHw
+
+      khDUu9l/xa7s6GEq6KVi0Z/LH9qzzDjx8edSHC3ucOt3+rqJ/tj5qYumDTfNkML8
+
+      /hdvY4mj/xaZ8EE62aMvpOYQ5wEqSvXr7+YD4KCV004UvjbfQDZCDU42rXBCriL0
+
+      UFFnEr4Uv0yLkNyXNxskolyPL/YY0oUH68hluQ2Ztw0nRVrK9FYY9r2DaCDpmB7C
+
+      XvTf105owbQ8HdXQbGnRY2KDBQ3lMxuTFYtXyICcokVdbp2yaal/ILSPfzheN0pX
+
+      OZJjG9iHzkb2I3z4QsSPrjGJJysGdHtbKNOXIGgcpmfU0AM31UDexZ8EcwqrKJ7m
+
+      1XNzbjXVvSzS9FI3YgawiaEUpIBxTFtZTLlaWjwZucVaNa5mVm19K1rmSMDoV+fR
+
+      cdiST2UDoXZ5BaVD0itiBPA9WNthlRJTfOn1ZrCJVOvbAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 0
+    runs_spines_external: 1
+  clients:
+  - client_id: 2
+    host: aster20
+    spines_external_daemon: aster20
+    type: PNNL

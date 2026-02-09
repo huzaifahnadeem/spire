@@ -618,6 +618,9 @@ void PR_Process_Incarnation_Ack(signed_message *mess)
     sender = mess->machine_id;
     iack = (incarnation_ack_message *)(mess + 1);
 
+    //jack added
+    int32u ni_size = UTIL_Message_Size(DATA.PR.new_incarnation[VAR.My_Server_ID]);
+
     Alarm(PRINT, "PR_Process_Incarnation_Ack: recv from %u about [%u,%u]\n",
             mess->machine_id, iack->acked_id, iack->acked_incarnation);
    
@@ -642,7 +645,7 @@ void PR_Process_Incarnation_Ack(signed_message *mess)
      * ACK. This should ensure the timestamp and nonce on our original new_incarnatiion
      * message is consistent */
     OPENSSL_RSA_Make_Digest((byte*)DATA.PR.new_incarnation[VAR.My_Server_ID], 
-            sizeof(signed_message) + sizeof(*ni), digest);
+            ni_size, digest);
     if (memcmp(digest, iack->digest, DIGEST_SIZE) != 0) {
         Alarm(PRINT, "PR_Process_Incarnation: Digests don't match\n");
         return;
@@ -1308,8 +1311,10 @@ void PR_Try_To_Complete_Recovery(int32u recent_replica)
     assert(DATA.PR.reset_certificate == NULL);
     DATA.PR.reset_certificate = UTIL_New_Signed_Message();
     size = UTIL_Message_Size(rc);
+    // global configuration is overwritten with 0s below
     memcpy(DATA.PR.reset_certificate, rc, size);
     memset(DATA.PR.reset_certificate, 0, sizeof(signed_message));
+    DATA.PR.reset_certificate->global_configuration_number = DATA.NM.global_configuration_number;
     DATA.PR.reset_certificate->machine_id = VAR.My_Server_ID;
     DATA.PR.reset_certificate->type = RESET_CERT;
     DATA.PR.reset_certificate->incarnation = DATA.PR.new_incarnation_val[VAR.My_Server_ID];
@@ -2193,6 +2198,7 @@ void PR_Process_Reset_NewLeaderProof(signed_message *mess)
      *      touch the content of the new_leader_proof message */
     size = mess->len;
     memset(DATA.PR.reset_newleaderproof, 0, sizeof(signed_message));
+    DATA.PR.reset_newleaderproof->global_configuration_number = DATA.NM.global_configuration_number;
     DATA.PR.reset_newleaderproof->machine_id = VAR.My_Server_ID;
     DATA.PR.reset_newleaderproof->type = RESET_NEWLEADERPROOF;
     DATA.PR.reset_newleaderproof->incarnation = DATA.PR.new_incarnation_val[VAR.My_Server_ID];
@@ -2515,6 +2521,7 @@ void PR_Process_Reset_Certificate(signed_message *mess)
     inc_ref_cnt(mess);
     DATA.PR.reset_certificate = mess;
     memset(DATA.PR.reset_certificate, 0, sizeof(signed_message));
+    DATA.PR.reset_certificate->global_configuration_number = DATA.NM.global_configuration_number;
     DATA.PR.reset_certificate->machine_id = VAR.My_Server_ID;
     DATA.PR.reset_certificate->type = RESET_CERT;
     DATA.PR.reset_certificate->incarnation = DATA.PR.new_incarnation_val[VAR.My_Server_ID];
@@ -2540,6 +2547,7 @@ void PR_Resume_Normal_Operation()
 
     /* Next, startup all normal Prime periodic functions and timers */
     Alarm(PRINT,"Called PR_Resume_Normal_operations\n");
+    Alarm(PRINT, "Prime ready, Configuration ID: %u\n", DATA.NM.global_configuration_number);
     if(DATA.NM.OOB_Reconfig_Inprogress){
 	 DATA.NM.OOB_Reconfig_Inprogress = 0;
 	}
@@ -2564,6 +2572,7 @@ void PR_Send_Application_Reset()
     up = (signed_update_message *)&reset;
     up_contents = (signed_message *)(up->update_contents);
 
+    event->global_configuration_number = DATA.NM.global_configuration_number;
     event->machine_id = VAR.My_Server_ID;
     event->type = UPDATE;
     event->incarnation = DATA.PR.new_incarnation_val[VAR.My_Server_ID];

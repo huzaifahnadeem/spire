@@ -38,6 +38,7 @@ extern "C" {
   #include "../config/cJSON.h"
   #include "../config/config_helpers.h"
 }
+// #include "../prime/src/parser.h"
 
 /* RTU information container */
 typedef struct namelist_d {
@@ -68,6 +69,8 @@ struct timeval    Poll_Period;
 // TODO remove
 //int counter = 0;
 //int global_val = 0;
+
+const char *config_path = "../prime/bin/received_configs/latest.yaml";
 
 //Will write info to SM
 int Write_To_SM(int idx)
@@ -204,12 +207,32 @@ static void init(int ac, char **av)
     char ip[80], var[80];
     char *cptr2;
 
-    if(ac != 4) {
-        printf("Usage: %s ID spinesAddr:spinesPort Num_RTU_Emulated\n", av[0]);
+
+    if (ac < 3 || ac > 5) {
+        printf("Usage: %s ID Num_RTU_Emulated [-c config_file]\n", av[0]);
+        exit(EXIT_FAILURE);
+    }
+    
+    for (i = 3; i < ac; i++) {
+        if (strcmp(av[i], "-c") == 0) {
+            if (i + 1 >= ac) {
+                printf("Error: -c flag given but no config file specified\n");
+                exit(EXIT_FAILURE);
+            }
+            config_path = av[i + 1];
+            i++; 
+        }
+    }
+    
+    struct config *cfg = load_yaml_config(config_path);
+
+    if (cfg == NULL)
+    {
+        printf("Failed to parse config file.\n");
         exit(EXIT_FAILURE);
     }
 
-    Init_SM_Replicas();
+    Init_SM_Replicas(cfg);
 
     for(i=0; i<256; i++)
         poll_slave_counter[i] = 0;
@@ -431,7 +454,7 @@ static void init(int ac, char **av)
 
     // Grab the Num_RTU_Emulated and calculate Poll timeout frequency
     memset(&Poll_Period, 0, sizeof(struct timeval));
-    sscanf(av[3], "%d", (int *)&num_emu_rtu);
+    sscanf(av[2], "%d", (int *)&num_emu_rtu);
     if (num_emu_rtu <= 0 || num_emu_rtu > 10) {
         printf("Invalid Num_RTU: %d, must be betwteen 1 and 10\n", num_emu_rtu);
         exit(EXIT_FAILURE);

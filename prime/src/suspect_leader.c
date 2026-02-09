@@ -485,7 +485,7 @@ void SUSPECT_Suspect_Leader()
 
     t = DATA.SUSP.tat_acceptable * VARIABILITY_KLAT;
     if (DATA.VIEW.view_change_done == 1)
-        t += (double)PRE_PREPARE_SEC + (double)(PRE_PREPARE_USEC)/1000000.0;
+        t += (double)PRE_PREPARE_SEC + (double)(PRE_PREPARE_USEC)/1000000.0 + 100000.0;
 
     if (DATA.SUSP.leader_suspected == 0 && DATA.SUSP.tat_leader > t) {
         Alarm(PRINT, "Leader suspicious: tat_leader %f > tat_acceptable %f\n", 
@@ -683,6 +683,7 @@ void SUSPECT_Process_New_Leader_Proof(signed_message *mess)
      *      touch the content of the new_leader_proof message */
     size = mess->len;
     memset(DATA.SUSP.new_leader_proof, 0, sizeof(signed_message));
+    DATA.SUSP.new_leader_proof->global_configuration_number = DATA.NM.global_configuration_number;
     DATA.SUSP.new_leader_proof->machine_id = VAR.My_Server_ID;
     DATA.SUSP.new_leader_proof->type = NEW_LEADER_PROOF;
     DATA.SUSP.new_leader_proof->incarnation = DATA.PR.new_incarnation_val[VAR.My_Server_ID];

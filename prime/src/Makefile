@@ -39,23 +39,19 @@
 # 
 # 
 
-INC = -I../stdutil/include -I../libspread-util/include -I../libspread-util/src -I../../spines/libspines
+INC = -I../stdutil/include -I../libspread-util/include -I../libspread-util/src -I../../spines/libspines 
 STDUTIL_LIB = ../stdutil/lib/libstdutil.a
 LIBSPREAD_UTIL = ../libspread-util/src/libspread-util.a
 TC_LIB = ../OpenTC-1.1/TC-lib-1.0/.libs/libTC.a
 
-# Prime can be configured to make use of Spines, an overlay network
-# developed at Johns Hopkins (see http://spines.org). This can be
-# useful for testing wide-area topologies and placing bandwidth and
-# latency constraints on the links between servers. By default,
-# Prime is set up to use Spines. Spines is included in the
-# spines directory. To not use Spines, comment the following two lines:
 SPINES = -DSET_USE_SPINES 
 SPINES_LIB = ../../spines/libspines/libspines.a
 
+INC += -I../libcyaml/include
+LIBCYAML = ../libcyaml/build/release/libcyaml.a
+
 CC = gcc
-#CFLAGS = -g -pg -O2 -Wall $(SPINES) $(INC)  
-CFLAGS += -g -O2 -Wall -DNDEBUG $(SPINES) $(INC)  
+CFLAGS += -g -O2 -Wall -DNDEBUG $(SPINES) $(INC)
 
 WRAPPER_OBJ = error_wrapper.o openssl_rsa.o
 
@@ -63,38 +59,32 @@ PRIME_OBJ = prime.o data_structs.o utility.o network.o pre_order.o \
 	util_dll.o validate.o nm_process.o process.o packets.o order.o  \
 	signature.o net_wrapper.o merkle.o suspect_leader.o \
 	reliable_broadcast.o view_change.o erasure.o recon.o \
-	tc_wrapper.o catchup.o proactive_recovery.o $(WRAPPER_OBJ)
-
+	tc_wrapper.o catchup.o proactive_recovery.o \
+	parser.o key_generation.o config_utils.o $(WRAPPER_OBJ)
 
 DRIVER_OBJ = driver.o data_structs.o utility.o network.o pre_order.o \
 	util_dll.o packets.o nm_process.o process.o order.o \
 	signature.o net_wrapper.o erasure.o validate.o suspect_leader.o \
 	reliable_broadcast.o view_change.o catchup.o proactive_recovery.o \
-	merkle.o recon.o tc_wrapper.o $(WRAPPER_OBJ)
+	merkle.o recon.o tc_wrapper.o parser.o key_generation.o config_utils.o $(WRAPPER_OBJ)
 
-CM_OBJ=config_manager.o data_structs.o utility.o network.o pre_order.o \
+CM_OBJ=config_manager.o config_utils.o parser.o key_generation.o data_structs.o utility.o network.o pre_order.o \
         util_dll.o packets.o nm_process.o process.o order.o \
         signature.o net_wrapper.o erasure.o validate.o suspect_leader.o \
         reliable_broadcast.o view_change.o catchup.o proactive_recovery.o \
         merkle.o recon.o tc_wrapper.o $(WRAPPER_OBJ)
 
-CA_OBJ=config_agent.o data_structs.o utility.o network.o pre_order.o \
+CA_OBJ=config_agent.o config_utils.o key_generation.o parser.o data_structs.o utility.o network.o pre_order.o \
         util_dll.o packets.o nm_process.o process.o order.o \
         signature.o net_wrapper.o erasure.o validate.o suspect_leader.o \
         reliable_broadcast.o view_change.o catchup.o proactive_recovery.o \
         merkle.o recon.o tc_wrapper.o $(WRAPPER_OBJ)
 
+CD_OBJ=config_disseminator.o
 
-GEN_KEYS_OBJ =  generate_keys.o tc_wrapper.o data_structs.o utility.o network.o pre_order.o \
-        util_dll.o validate.o nm_process.o process.o packets.o order.o  \
-        signature.o net_wrapper.o merkle.o suspect_leader.o proactive_recovery.o\
-        reliable_broadcast.o view_change.o erasure.o recon.o  catchup.o $(WRAPPER_OBJ)
+GEN_TPM_KEYS_OBJ = gen_tpm_keys.o key_generation.o parser.o config_utils.o 
 
-all: $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) prime driver gen_keys config_manager config_agent
-
-
-
-
+all: $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) prime driver gen_tpm_keys config_manager config_agent config_disseminator
 
 $(STDUTIL_LIB):
 	cd ../stdutil; ./configure; make
@@ -105,21 +95,23 @@ $(LIBSPREAD_UTIL):
 $(TC_LIB):
 	cd ../OpenTC-1.1/TC-lib-1.0/; ./configure; make
 
-gen_keys: $(GEN_KEYS_OBJ)
-	$(CC) $(LDFLAGS) -o ../bin/gen_keys $(GEN_KEYS_OBJ) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) $(STDUTIL_LIB) -lcrypto -ldl -lpthread -lrt
+gen_tpm_keys: $(GEN_TPM_KEYS_OBJ)
+	$(CC) $(LDFLAGS) -o ../bin/gen_tpm_keys $(GEN_TPM_KEYS_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lcrypto -ldl -lpthread -lrt $(LIBCYAML) -lyaml
 
 prime: $(PRIME_OBJ)
-	$(CC) $(LDFLAGS) $(CPPFLAGS) -o ../bin/prime $(PRIME_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt
-
+	$(CC) $(LDFLAGS) $(CPPFLAGS) -o ../bin/prime $(PRIME_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt $(LIBCYAML) -lyaml
 
 driver: $(DRIVER_OBJ)
-	$(CC) $(LDFLAGS) -o ../bin/driver $(DRIVER_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt
+	$(CC) $(LDFLAGS) -o ../bin/driver $(DRIVER_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt $(LIBCYAML) -lyaml
 
 config_manager:  $(CM_OBJ)
-	 $(CC) $(LDFLAGS) -o ../bin/config_manager $(CM_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt
+	$(CC) $(LDFLAGS) -o ../bin/config_manager $(CM_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt $(LIBCYAML) -lyaml
 
 config_agent:  $(CA_OBJ)
-	 $(CC) $(LDFLAGS) -o ../bin/config_agent $(CA_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt
+	$(CC) $(LDFLAGS) -o ../bin/config_agent $(CA_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(TC_LIB) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt $(LIBCYAML) -lyaml
+
+config_disseminator: $(CD_OBJ)
+	$(CC) $(LDFLAGS) -o ../bin/config_disseminator $(CD_OBJ) $(STDUTIL_LIB) $(LIBSPREAD_UTIL) $(SPINES_LIB) -lm -lcrypto -ldl -lpthread -lrt
 
 %.o:	%.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $*.o $*.c
@@ -133,15 +125,18 @@ clean:
 	rm -f ../bin/gen_keys
 	rm -f ../bin/config_manager
 	rm -f ../bin/config_agent
+	rm -f ../bin/config_disseminator
+	rm -f ../bin/gen_tpm_keys
 
-# Also cleans up the stdutil, libspread-util, and OpenTC libraries
-# Uses - to ignore errors, since these fail if clean is run multiple times
 cleaner: clean
 	-$(MAKE) -C ../stdutil distclean
 	-$(MAKE) -C ../libspread-util distclean
 	-$(MAKE) -C ../OpenTC-1.1/TC-lib-1.0/ distclean
 
-# Also removes all key files
 distclean: cleaner
 	cd ../bin/keys; rm -f *.pem; rm -f *.key
 	cd ../bin/tpm_keys; rm -f *.pem; rm -f *.key
+
+
+
+

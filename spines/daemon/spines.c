@@ -99,6 +99,7 @@ WSADATA		WSAData;
 #define HOST_NAME_LEN 50
 #define SERVER_TYPE_LEN 20
 #define LOG_FILE_NAME_LEN 2000
+#define MAX_KEY_DIR_LEN 1024
 
 /* Global Variables */
 
@@ -110,7 +111,7 @@ char            My_Host_Name[HOST_NAME_LEN];
 int16u          Num_Local_Interfaces;
 Interface_ID    My_Interface_IDs[MAX_LOCAL_INTERFACES];
 Network_Address My_Interface_Addresses[MAX_LOCAL_INTERFACES];
-
+ 
 int16           Num_Legs;
 Network_Address Remote_Interface_Addresses[MAX_NETWORK_LEGS];
 Interface_ID    Remote_Interface_IDs[MAX_NETWORK_LEGS];
@@ -161,6 +162,7 @@ stdhash     Node_Lookup_ID_to_Addr;
 int16u      My_ID;
 int32u      *Neighbor_Addrs[MAX_NODES + 1];
 int16u      *Neighbor_IDs[MAX_NODES + 1];
+char        Key_Dir[MAX_KEY_DIR_LEN];
 
 /* Sessions */
 
@@ -701,6 +703,7 @@ static  void    Usage(int argc, char *argv[])
     Leg_Rate_Limit_kbps = 500000;
 
     strcpy( Config_file, "spines.conf" );
+    strncpy(Key_Dir, "keys", MAX_KEY_DIR_LEN);
     Num_Discovery_Addresses = 0;
 
     while(--argc > 0) {
@@ -948,6 +951,17 @@ static  void    Usage(int argc, char *argv[])
             }
             Unix_Domain_Use_Default = 0;
 #endif
+        }else if (!strncmp(*argv, "-kd", 4)) {
+            ++argv;
+            --argc;
+            if (argc == 0) {
+                Alarm(EXIT, "-kd requires a directory path parameter!\r\n");
+            }
+            size_t s_len = MAX_KEY_DIR_LEN - 1;
+            int ret = snprintf(Key_Dir, s_len, "%s", *argv);
+            if (ret > s_len) {
+                Alarm(EXIT, "-kd: key directory path too long (%d), max allowed is %u\n", ret, s_len);
+            }
         }else{
             Alarm(PRINT, "ERR: %d | %s\r\n", argc, *argv);
 

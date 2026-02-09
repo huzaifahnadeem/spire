@@ -61,6 +61,8 @@ extern Node_ID           My_Address;
 extern int16u            Num_Local_Interfaces;
 extern Network_Address   My_Interface_Addresses[];
 
+extern char        Key_Dir[];
+
 unsigned char Conf_Hash[SHA256_DIGEST_LENGTH];
 
 int Edge_Cmp(const void *l, const void *r);
@@ -147,19 +149,21 @@ void    Post_Conf_Setup()
     Num_Nodes = temp_num_nodes;
 
     if (Conf_IT_Link.Crypto == 1 || Conf_Prio.Crypto == 1 || Conf_Rel.Crypto == 1) {
-        snprintf(keyFile, 80, "keys/private%d.pem", My_ID);
+        snprintf(keyFile, sizeof(keyFile), "%s/private%d.pem", Key_Dir, My_ID);
+    
         key_fp = fopen(keyFile, "r");
         if (key_fp == NULL)
-            Alarm(EXIT, "Post_Conf_Setup: cannot find file "
-                        "keys/private%d.pem\r\n", My_ID);
-        Priv_Key = PEM_read_PrivateKey(fopen(keyFile,"r"), 
-                NULL, NULL, NULL);
+            Alarm(EXIT, "Post_Conf_Setup: cannot find file %s\n", keyFile);
+    
+        Priv_Key = PEM_read_PrivateKey(key_fp, NULL, NULL, NULL);
+        fclose(key_fp);  // Close after reading
+    
         if (Priv_Key == NULL)
-            Alarm(EXIT, "Post_Conf_Setup: Unable to read key "
-                        "from keys/private%d.pem\r\n", My_ID);
+            Alarm(EXIT, "Post_Conf_Setup: Unable to read key from %s\n", keyFile);
+    
         Signature_Len = EVP_PKEY_size(Priv_Key);
         if (Signature_Len != Signature_Len_Bits / 8)
-            Alarm(EXIT, "Post_Conf_Setup: Key_Length mismatch\r\n");
+            Alarm(EXIT, "Post_Conf_Setup: Key length mismatch\n");
     }
     else {
         Cipher_Blk_Len = 0;
@@ -787,18 +791,18 @@ void Conf_add_host(int id, int ip)
     temp_num_nodes++;
 
     if (Conf_IT_Link.Crypto == 1 || Conf_Prio.Crypto == 1 || Conf_Rel.Crypto == 1) {
-        snprintf(keyFile, 80, "keys/public%d.pem", id);
+        snprintf(keyFile, sizeof(keyFile), "%s/public%d.pem", Key_Dir, id);
+    
         key_fp = fopen(keyFile, "r");
         if (key_fp == NULL)
-            Alarm(EXIT, "Util_Load_Addresses: cannot find file "
-                        "keys/public%d.pem\r\n", id);
-        Pub_Keys[id] = PEM_read_PUBKEY(fopen(keyFile,"r"), 
-                NULL, NULL, NULL);
+            Alarm(EXIT, "Util_Load_Addresses: cannot find file %s\n", keyFile);
+    
+        Pub_Keys[id] = PEM_read_PUBKEY(key_fp, NULL, NULL, NULL);
+        fclose(key_fp);
+    
         if (Pub_Keys[id] == NULL)
-            Alarm(EXIT, "Util_Load_Addresses: Unable to read key "
-                        "from keys/public%d.pem\r\n", id);
+            Alarm(EXIT, "Util_Load_Addresses: Unable to read key from %s\n", keyFile);
     }
-
 }
 
 void    Conf_validate_hosts()

@@ -56,7 +56,7 @@
 
 /* Maximum number of tolerated benign faults, including rejuvenations,
  * disconnections (network partition/attack), and crashes */
-#define NUM_K 1
+#define NUM_K 0
 
 /*This parameter is used only in confidential spire. Will be replaced bu VAR.Num_Servers
  * in future version*/
@@ -82,7 +82,8 @@
 #define USE_ERASURE_CODES 0
 
 /* Variability constant K_Lat */
-#define VARIABILITY_KLAT 2.5
+// #define VARIABILITY_KLAT 2.5
+#define VARIABILITY_KLAT 10.0
 
 /* Catchup History - To catch other replicas up, we
  * keep AT LEAST this many ord_slots around so that we can give them
@@ -140,7 +141,7 @@
 #define CONF_SPINES_MCAST_ADDR "224.1.1.3"
 #define CONF_SPINES_MCAST_PORT 9900
 /*IP Address of Configuration Manager- Please edit to match testbed*/
-#define CONF_MNGR_ADDR "192.168.101.108"
+#define CONF_MNGR_ADDR "192.168.0.108"
 /*Ports of Spines Configuration Network used by Configuration Manager and Agents*/
 #define CONFIGUATION_SPINES_PORT       8900
 #define CTRL_BASE_PORT      9580

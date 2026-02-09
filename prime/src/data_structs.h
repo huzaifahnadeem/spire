@@ -188,6 +188,7 @@ typedef struct dummy_po_data_struct {
    * for a fresh scan, these are both set to 0 */
   int32u po_ack_start_server;
   po_seq_pair po_ack_start_seq;
+  int32u po_ack_max_parts;
 
   /* For each server, what is the last po_request I've sent a PO-Ack for */
   po_seq_pair max_acked[MAX_NUM_SERVER_SLOTS];

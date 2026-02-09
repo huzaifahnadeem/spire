@@ -751,7 +751,7 @@ int32u VAL_Validate_Signed_Message(signed_message *mess, int32u num_bytes,
     VALIDATE_FAILURE("Invalid signature");
     return 0;
   }
-
+  
   //MS2022: Check Global Incarnation Number
   msg_global_inc = mess->global_configuration_number;
   if (sig_type == VAL_SIG_TYPE_SERVER ||

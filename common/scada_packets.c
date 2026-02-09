@@ -198,8 +198,8 @@ signed_message *PKT_Construct_TC_Final_Msg(ordinal o, tc_node *tcn)
     tc_final_msg *tcf;
     byte digest[DIGEST_SIZE];
 
-    if (tcn->count < REQ_SHARES) {
-        printf("TC_Final: too little shares (%u), required = %u\n", tcn->count, REQ_SHARES);
+    if (tcn->count < Curr_req_shares) {
+        printf("TC_Final: too little shares (%u), required = %u\n", tcn->count, Curr_req_shares);
         return NULL;
     }
 
@@ -242,7 +242,7 @@ signed_message *PKT_Construct_TC_Final_Msg(ordinal o, tc_node *tcn)
     }
 
     /* Make sure the local count in the function for OK shares made it to REQ_SHARES */
-    if (count < REQ_SHARES) {
+    if (count < Curr_req_shares) {
         printf("Error: enough shares, but not enough matching content on [%u, %u of %u]\n",
                 o.ord_num, o.event_idx, o.event_tot);
         free(mess);

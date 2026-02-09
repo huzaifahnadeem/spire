@@ -1395,6 +1395,17 @@ void PRE_ORDER_Initialize_Data_Structure()
 
   DATA.PO.po_ack_start_server = 0;
   DATA.PO.po_ack_start_seq = zero_ps;
+  DATA.PO.po_ack_max_parts = (PRIME_MAX_PACKET_SIZE -     
+    sizeof(signed_message) - 
+    sizeof(po_certificate_message) - 
+    MAX_MERKLE_DIGESTS * DIGEST_SIZE) - 
+    sizeof(signed_message) - 
+    sizeof(po_request_message) - 
+    (MAX_MERKLE_DIGESTS * DIGEST_SIZE) - 
+    ((2*VAR.F + VAR.K + 1) *
+    (sizeof(signed_message) + sizeof(po_ack_message) + 
+    (MAX_MERKLE_DIGESTS * DIGEST_SIZE))) / 
+    ((2*VAR.F + VAR.K + 1) * sizeof(po_ack_part));
 
   /* Setup ACK and ARU information */
   for (s = 1; s <= VAR.Num_Servers; s++) {

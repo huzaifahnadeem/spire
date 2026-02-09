@@ -46,7 +46,11 @@
 //#include "spu_memory.h"
 //#include "spu_alarm.h"
 #include "utility.h"
+#include <unistd.h>
+#include <stdio.h>
 #include "tc_wrapper.h"
+#include "config_utils.h"
+
 #include "../OpenTC-1.1/TC-lib-1.0/TC.h" 
 
 /* extern server_variables VAR; */
@@ -101,6 +105,207 @@ void TC_Read_Public_Key(char *dir)
 	       sprintf(buff2,"%s/pubkey_%d.pem", dir2, nsite);
 	       tc_sm_public_key[nsite] = (TC_PK *)TC_read_public_key(buff2);
 	    }
+    }
+}
+
+/**
+ * Writes the given content to a secure temporary file and returns its path.
+ * Caller is responsible for unlinking (deleting) it later.
+ *
+ * @param content Null-terminated string to write to the temp file.
+ * @param prefix File name prefix (e.g., "/tmp/tc_pubkey").
+ * @return Newly allocated string containing the path, or NULL on failure.
+ */
+char *write_temp_file(const char *prefix, const char *content) {
+    char tmp_path[256];
+    snprintf(tmp_path, sizeof(tmp_path), "%sXXXXXX", prefix);
+
+    int fd = mkstemp(tmp_path);
+    if (fd < 0) {
+        perror("mkstemp");
+        return NULL;
+    }
+
+    FILE *fp = fdopen(fd, "w");
+    if (!fp) {
+        perror("fdopen");
+        close(fd);
+        unlink(tmp_path);
+        return NULL;
+    }
+
+    if (fputs(content, fp) == EOF) {
+        perror("fputs");
+        fclose(fp);
+        unlink(tmp_path);
+        return NULL;
+    }
+
+    fclose(fp);
+    return strdup(tmp_path);  
+}
+
+/**
+ * Loads a TC_PK public key from a PEM-encoded string.
+ *
+ * Writes the string to a temporary .pem file and calls the
+ * TC_read_public_key() function, which only accepts file paths.
+ * The temp file is deleted after reading.
+ *
+ * @param pem_str PEM-encoded RSA public key string.
+ * @return Pointer to TC_PK on success, or NULL on failure.
+ */
+TC_PK *TC_read_public_key_from_string(const char *pem_str) {
+    char *tmp_path = write_temp_file("/tmp/tc_pubkey", pem_str);
+    if (!tmp_path) return NULL;
+
+    TC_PK *result = TC_read_public_key(tmp_path);
+    unlink(tmp_path);
+    free(tmp_path);
+
+    return result;
+}
+
+/**
+ * Loads a TC_IND threshold share from a PEM-encoded string.
+ *
+ * Writes the multi-key PEM string (a share) to a temporary file and calls
+ * TC_read_share(), which expects a file path. The file is removed after use.
+ *
+ * @param pem_str PEM-encoded threshold share string.
+ * @return Pointer to TC_IND on success, or NULL on failure.
+ */
+TC_IND *TC_read_share_from_string(const char *pem_str) {
+    char *tmp_path = write_temp_file("/tmp/tc_share", pem_str);
+    if (!tmp_path) return NULL;
+
+    TC_IND *share = TC_read_share(tmp_path);
+    unlink(tmp_path);
+    free(tmp_path);
+
+    return share;
+}
+
+/**
+ * Reads and decrypts the threshold private key share (partial key) for a given replica instance.
+ *
+ * The system uses threshold cryptography where each replica holds a private share of a larger key.
+ * These shares are stored encrypted in the configuration file (hybrid AES + RSA).
+ * This function locates the correct replica by its `instance_id`, loads the TPM private key
+ * for its host, decrypts the encrypted share, and loads it into the global `tc_partial_key`.
+ *
+ * @param instance_id The replica instance ID whose threshold key share is to be loaded.
+ * @param cfg         The pointer to the loaded configuration struct containing replicas and hosts.
+ * 
+ */
+void TC_Read_Partial_Key_From_Config(int32u instance_id, struct config *cfg) 
+{
+    if (!cfg) {
+        printf("Error: config pointer is NULL\n");
+        return;
+    }
+
+    for (unsigned s = 0; s < cfg->sites_count; ++s) {
+        struct site *site = &cfg->sites[s];
+
+        for (unsigned r = 0; r < site->replicas_count; ++r) {
+            struct replica *rep = &site->replicas[r];
+            if (rep->instance_id != instance_id)
+                continue;
+
+            if (!rep->host) {
+                printf("Replica %u has no associated host name\n", instance_id);
+                return;
+            }
+
+            struct host *host = find_host_by_name(cfg, rep->host);
+            if (!host || !host->permanent_key_location) {
+                printf("Host %s not found or missing key location for replica %u\n", rep->host, instance_id);
+                return;
+            }
+
+            EVP_PKEY *tpm_privkey = load_key_from_file(host->permanent_key_location, 1);
+            if (!tpm_privkey) {
+                printf("Failed to load TPM private key for host %s\n", host->name);
+                return;
+            }
+
+            if (!rep->encrypted_prime_threshold_key_share) {
+                printf("Replica %u has no encrypted threshold share in config\n", instance_id);
+                EVP_PKEY_free(tpm_privkey);
+                return;
+            }
+
+            char *enc_key_hex = NULL;
+            char *ciphertext_hex = NULL;
+            hybrid_unpack(rep->encrypted_prime_threshold_key_share, &enc_key_hex, &ciphertext_hex);
+
+            if (!enc_key_hex || !ciphertext_hex) {
+                printf("Failed to unpack encrypted key share for replica %u\n", instance_id);
+                EVP_PKEY_free(tpm_privkey);
+                free(enc_key_hex);
+                free(ciphertext_hex);
+                return;
+            }
+
+            struct HybridDecryptionResult dec = hybrid_decrypt(ciphertext_hex, enc_key_hex, tpm_privkey);
+            EVP_PKEY_free(tpm_privkey);
+            free(enc_key_hex);
+            free(ciphertext_hex);
+
+            if (!dec.plaintext) {
+                printf("Decryption failed for replica %u\n", instance_id);
+                return;
+            }
+
+            tc_partial_key = TC_read_share_from_string((const char *)dec.plaintext);
+            free(dec.plaintext);
+
+            if (!tc_partial_key) {
+                printf("Failed to parse threshold share for replica %u\n", instance_id);
+            }
+
+            return;
+        }
+    }
+
+    printf("Threshold share for replica %u not found in config\n", instance_id);
+}
+
+/**
+ * Loads the SM and Prime threshold public keys from the configuration into memory.
+ *
+ * This function extracts the threshold public keys for the SM (SCADA Master) and Prime
+ * services from the `service_keys` section of the parsed `config` object.
+ *
+ * @param cfg Pointer to the parsed system configuration structure.
+ * 
+ */
+void TC_Read_Public_Key_From_Config(struct config *cfg) 
+{
+    if (!cfg) {
+        printf("Error: config pointer is NULL\n");
+        return;
+    }
+
+    int32u nsite = 1;
+
+    if (cfg->service_keys.sm_threshold_public_key) {
+        tc_sm_public_key[nsite] = TC_read_public_key_from_string(cfg->service_keys.sm_threshold_public_key);
+        if (!tc_sm_public_key[nsite]) {
+            printf("Failed to load SM threshold public key for site %u\n", nsite);
+        }
+    } else {
+        printf("SM threshold public key missing from config\n");
+    }
+
+    if (cfg->service_keys.prime_threshold_public_key) {
+        tc_public_key[nsite] = TC_read_public_key_from_string(cfg->service_keys.prime_threshold_public_key);
+        if (!tc_public_key[nsite]) {
+            printf("Failed to load Prime threshold public key for site %u\n", nsite);
+        }
+    } else {
+        printf("Prime threshold public key missing from config\n");
     }
 }
 

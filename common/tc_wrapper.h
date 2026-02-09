@@ -59,3 +59,5 @@ void TC_Combine_Shares( byte *signature_dest, byte *digest );
 int32u TC_Verify_Signature( int32u site, byte *signature, byte *digest );
 int TC_Check_Share( byte *digest, int32u sender_id );
 void TC_Generate(int req_shares, char *directory);
+void TC_Read_Partial_Key_From_Config(int32u instance_id, struct config *cfg, const char *key_base_path);
+void TC_Read_Public_Key_From_Config(struct config *cfg);

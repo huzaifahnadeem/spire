@@ -1,0 +1,273 @@
+configuration_id: 2
+tolerated_byzantine_faults: 1
+tolerated_unavailable_replicas: 1
+service_keys: {}
+sites:
+- name: control_center1
+  type: CONTROL_CENTER
+  hosts:
+  - name: aster1
+    ip: 192.168.54.10
+    permanent_key_location: tpm_keys/aster1_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAtW0ivhZDfjzy+oYo2YLR
+
+      NUz/oK87GUjICcpbJr8ESj0mGaVW1oWDvrhTp7gD4iS7x4S6+/KoOV0Oa3Jk3My8
+
+      Yr+6wWiuLyLeVRRR7oElDTsTCgTFPTPqj3jUIMJa2yF0EVC74u7xNYNDljRcafSS
+
+      Dutl3DdKGBKnnjHv37jw0qBHqYsLdbzfe+GG5MOVt2h7kmGBbkCIebiu8CrmOiTa
+
+      QDLSFw5KG5FLxkMO1H2FbjVgcG9iIs6ur9p7wUPy5quZr6DCUT7QOtffgFoFI4Mx
+
+      THghrLnukpcrY1kHgzf3GKHKr4Pml6ggw9mKcadOGiznm/cEkAdcQhYb3ChgvLeF
+
+      I3OkQMC7nVNg+lkXvdtA8ZNSqnDXglDI4hHiz/aAHeTjJgsQDWnYIXOJ68BIjBjg
+
+      QfOBgL8JyjCR4wd6wF9lnmkRktGOS7bftI/5FZV0aoeZLhQT24AkIWejdgs/v5G1
+
+      qDl23vwA4hS5WNm5gYsyNvPbFBhB1xpIJacuVOVVwdjLAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: aster2
+    ip: 192.168.54.11
+    permanent_key_location: tpm_keys/aster2_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAxheXgTq3pbqi3rUHijJs
+
+      sTxKAi/dfD3zKlOVmcxJraP/BYsiM0kLMd8jH8zTNdaEK2sZr4AeYag2K7zBRbK0
+
+      TLdeAmrnK9Q1MBIQ7pJhZYx20LB03dV1VOYay2n8fwaD2U2CIVqeWb5dYobeuG5F
+
+      kxTC27SORKhEWQEGnYqyCD5Xiw7kXr/CbkMX8J+iA/Cb3G9zlIR+kuXnnzw9o3lT
+
+      bYGAlvbetCpz+SNgXEglHNbnRsDK8FDKq81wXECjrckIVm8n8qxxFCQpeHWdj1TN
+
+      5vBk3N3tp592H9nH5bYRT7dg7BU82of/zpjOfJhkICPwhVJSsVb933YGIS6OzS90
+
+      xe4C4EfCoimfo8VK9XNJ7U1IUBHFOxWn7X1/yI41RRQG2gSPG7/JlT8oSxCRCwBA
+
+      eQC2eUgkZuOQ0AofSil6gtBry46Y2l3q8V2q1WyTHz8AlgDjltiuzZTipQgydKgQ
+
+      08cus3AMl2fKwZ5E5IM+nRIviu60G3ts+omAfQl5UdqvAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: aster3
+    ip: 192.168.54.12
+    permanent_key_location: tpm_keys/aster3_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA3abynON439tUgj71Xabo
+
+      0xNodNS7BEJknhYMpQMevwsOzygGJJ0zW9tl9Qn3cl4Iu5hHw9p8SFRoVzPm7mEm
+
+      aClrK+0hUc5OzsF41BthROvdBR2dG52XQF5SV6+6Vw1ICdgHLrsqORBSZ7rzrvpV
+
+      sl3e1dLjX7unjNhrf97jrzgULo64gcZXAgiWFuAhP9tS0Evk2DgP6l3E9IcH9QEq
+
+      9i26oU22tM8MRPh0jIQe1XiHUeDlg4v1DpQuj639U3PNOsNy4L2mcdGS4F31n8Sj
+
+      FuT8UUDJsZWv5W5lkEjyIfDvi31yqNKmpAf5fZMMT/t0M1Yut0YttilRoeANspoy
+
+      VfoAy5SJSmc8ebL0YJLtBZOMxcZ/fevXVFmUyluW/HznYEv288hbsIKHC5Udx3E8
+
+      y5s1dsaHMOE2NOJIdxAt2NZ2Ankiq4coLN1w3zEO4XVBQBqOBZ9oG6BoilXF/53I
+
+      1rqEKk+D24X6sQu/k+kjsy3nuTcPJbNAmyesHhARSm11AgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: aster4
+    ip: 192.168.54.13
+    permanent_key_location: tpm_keys/aster4_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA0M7fEgj2BTh6FUz07VGn
+
+      1bwHULAyo6iq3N9e+uvadJoWKEQY8lCtgRHG7TEwPi8GqyZXN3PHcdJ0MM+CBVCL
+
+      nOZ60VywfPhdI7/Rh6ZvXUb++Xv/eFIfs15mdRkb6PvoYzum47mwly4b2HdM+sVw
+
+      k79qvCezSYhPKVkyDb9GPUalO7anXPP1AF26M9/+p+XVF1wVKRE3iT1BlvLtBKKR
+
+      6UilLay5Wx1BPv9aSABQByhWqEnlHUKqfE1MV1AOEoVo7rLlxpoGb/8nii0ipD/W
+
+      aI/Pnir7Ylxfz2kkDjM6A0x+HnYCER7ws8aYDRlaHdu/TEcE/GsYCycKwyRjl1tZ
+
+      D3oErEj8vpPricHE/qEJxCioIDu0/1Cxlxh5xajqZtEYyYc1bFnmBUm5YmahvZxX
+
+      7TPu4Q4NfGcB47CEeBcEiTx6ti9QlfqdAIHyOJHCwJA98cflkVReG/DojyDogbF8
+
+      92VA9klPglxhtIcybzd91z5urF2pr6LT7NZfWvxEo6CvAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: aster5
+    ip: 192.168.54.14
+    permanent_key_location: tpm_keys/aster5_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAv+Z/gmVEF9wk+LojUaTy
+
+      FUkD6zJBTkjaoPqmP0ByaCilQGRJAKxs2tqZw9yWdOI5K4OGlMHaYudtkofOnI6r
+
+      vH5I2TrK0w3/0D8R8Xz6In3OivvxiX7aN10j8UzcQs7/VieSyog5Oik8U8mNgMyH
+
+      6v75oXWmqTyW3i2njR6X+x1yUpOSLjgMNOuuiflWrOP2fpQVkSlj78PW8EaMthKJ
+
+      UkPcR3Mlc/D3151Vq3AxzJT5cDg29QdOPR1GBBfx60BT4n7oW8VvjapxtUCFgS04
+
+      3slz/i3+RXHA3hEWgRCiimpEIU6FV8JVnE3lEfwhJajnjmodoRtO/eNLaGjyLFZn
+
+      quH7+SGJiAPO1P4/IZlSYk1Au+1iZ+rOhBW6rb6rriy0pBLZNIIYh/L/GyfXUnFk
+
+      eIMH7jqT6qChLEwyFXhqedSaCtD+8IUrjHZHf7UIzYty+cthxSLbejpc78q/zRCG
+
+      Z6BaEo6MrYLnAmAfEZPr519AOz73NIzJvYJ1Ay1se8jLAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  - name: aster6
+    ip: 192.168.54.15
+    permanent_key_location: tpm_keys/aster6_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAy8IRs5e6L59NYoCdioa6
+
+      N0OAYABUeFWgtHv3xwlhNp3rOHaatJ7vEYd8w1/RE7uaPRKRUuwpQ3PCnMqb78BQ
+
+      XA0a8UA/HhijcthZYADDicWXus/dRl/kIfetTPNUD9zyXlHd3Hj/9L3zWdEVSSxl
+
+      y1N/Phm3BM4tLXMCGhC+WnxiVZakKo8rtJyUq9Yv7S9ytIGRPyLZnU/p7K4DWglf
+
+      jEc60L5ZLw1kZeT7XpRNpJve6BkG8eRn3y0FnqSWfEfRWPPHyuprILY9gFBLYv5M
+
+      pfRfNLI8bHuOSCa164nz4wjADuwJsh30/2VHo00snntKL2cTMl7WHML+ohUGG7bl
+
+      xyk5vWIdMrXWZvAxyzFeWHf41wDRqtWP8uylT3nPf8mD8sUwGoMbOHVhu5KogkV3
+
+      1+j1g/aj8zUCW9FLgbEjPjw9HsZk9R8wHTV04KSpA1tZlJPx2GLtExLoM4buU9lt
+
+      ygMPDlVROikqjb8eNDfo42GB1WU8k/9Xjc+TnXL7COm9AgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 1
+    runs_spines_external: 1
+  replicas:
+  - instance_id: 1
+    host: aster1
+    spines_internal_daemon: aster1
+    spines_external_daemon: aster1
+  - instance_id: 2
+    host: aster2
+    spines_internal_daemon: aster2
+    spines_external_daemon: aster2
+  - instance_id: 3
+    host: aster3
+    spines_internal_daemon: aster3
+    spines_external_daemon: aster3
+  - instance_id: 4
+    host: aster4
+    spines_internal_daemon: aster4
+    spines_external_daemon: aster4
+  - instance_id: 5
+    host: aster5
+    spines_internal_daemon: aster5
+    spines_external_daemon: aster5
+  - instance_id: 6
+    host: aster6
+    spines_internal_daemon: aster6
+    spines_external_daemon: aster6
+- name: plc_site
+  type: CLIENT
+  hosts:
+  - name: aster19
+    ip: 192.168.54.28
+    permanent_key_location: tpm_keys/aster19_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAkCkXq8Hfg5aQ2SHhpiQz
+
+      PtGwWQDcahu9jdFfSz8nEL3F4mJCX5yOc/HSo8fiqlXng4UFwyFJfErlVesSu9/N
+
+      +b6xzYJec9QOOcMQlCmpQOH2qVNp4V61ie6jTmaPUGClkuZ+kDY3Q/nbtHASltAD
+
+      JgOTmYjcW2YiikamM5JnBJnB0aF0ftCYVVXhm9mYlRZ/3CLhVH3p2L0EHUHZnxeW
+
+      jWS+GE4jBAiPSW+1ZkX1mZ9IiPtweWZ37coTLAOV4Tn2N+mKYBLfB6KvwM7w7Dwq
+
+      30w3jx9lZOP1xgWTPpLmVohIU0DlVwJVOQWsfqB2zDy8avkZp5kDPdgIZsh201L2
+
+      xIwgI5EiFbTlAWS7ko4qjmYVtosxL+LqqWk0r9nfpn2M3N8/jnYzSssVpb3e9NeW
+
+      ekJbSrLDcOfnHBMowaEkyT+wFY4sG9pKKBbs9g+LS3Tqe1l9p4A0VgxM8ZVm1ME4
+
+      MO1bHPGG6f1KiSlhbp9poP1xaXayDu8qnIfGXLdnhqTbAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 0
+    runs_spines_external: 1
+  clients:
+  - client_id: 10
+    host: aster19
+    spines_external_daemon: aster19
+    type: proxy
+- name: hmi_site
+  type: CLIENT
+  hosts:
+  - name: aster20
+    ip: 192.168.54.29
+    permanent_key_location: tpm_keys/aster20_tpm_private.pem
+    permanent_public_key: '-----BEGIN PUBLIC KEY-----
+
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAs54bLCBZFY/nApsD5QmS
+
+      u6rrLG0wi4Hj6msuqppfNWyT66fj5hZypN7jz/jxezkNjl750W4wqEdIIrfa4NHw
+
+      khDUu9l/xa7s6GEq6KVi0Z/LH9qzzDjx8edSHC3ucOt3+rqJ/tj5qYumDTfNkML8
+
+      /hdvY4mj/xaZ8EE62aMvpOYQ5wEqSvXr7+YD4KCV004UvjbfQDZCDU42rXBCriL0
+
+      UFFnEr4Uv0yLkNyXNxskolyPL/YY0oUH68hluQ2Ztw0nRVrK9FYY9r2DaCDpmB7C
+
+      XvTf105owbQ8HdXQbGnRY2KDBQ3lMxuTFYtXyICcokVdbp2yaal/ILSPfzheN0pX
+
+      OZJjG9iHzkb2I3z4QsSPrjGJJysGdHtbKNOXIGgcpmfU0AM31UDexZ8EcwqrKJ7m
+
+      1XNzbjXVvSzS9FI3YgawiaEUpIBxTFtZTLlaWjwZucVaNa5mVm19K1rmSMDoV+fR
+
+      cdiST2UDoXZ5BaVD0itiBPA9WNthlRJTfOn1ZrCJVOvbAgMBAAE=
+
+      -----END PUBLIC KEY-----
+
+      '
+    runs_spines_internal: 0
+    runs_spines_external: 1
+  clients:
+  - client_id: 2
+    host: aster20
+    spines_external_daemon: aster20
+    type: PNNL

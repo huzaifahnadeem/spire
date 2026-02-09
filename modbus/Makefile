@@ -51,12 +51,14 @@ CFLAGS        += -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
 CXXFLAGS      += -pipe -O2 -Wall -W -fPIE -g $(DEFINES)
 PVB			  = ../pvb
 INCPATH       = -I. -I$(PVB)/rllib/lib -I../prime/stdutil/include -I../spines/libspines/
+INCPATH += -I../prime/libcyaml/include
+LIBCYAML = ../prime/libcyaml/build/release/libcyaml.a
 LINK          = g++
 LFLAGS        = -Wl,-O1
 LIBS          = $(SUBLIBS) -lpthread $(PVB)/rllib/lib/librllib.a \
 				../prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
 				../spines/libspines/libspines.a ../prime/stdutil/lib/libstdutil.a \
-				-lrt -ldl -lm -lcrypto
+				-lrt -ldl -lm -lcrypto $(LIBCYAML) -lyaml
 TARGET    = modbus_master
 OBJECTS   = modbus_master.o \
             ../common/scada_packets.o \
@@ -65,7 +67,10 @@ OBJECTS   = modbus_master.o \
             ../common/tc_wrapper.o \
             ../common/key_value.o \
             ../config/cJSON.o \
-            ../config/config_helpers.o
+            ../config/config_helpers.o \
+			../prime/src/config_utils.o \
+			../prime/src/parser.o \
+			../prime/src/key_generation.o
 
 .SUFFIXES: .o .c .cpp
 

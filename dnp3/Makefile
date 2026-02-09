@@ -55,12 +55,16 @@ CXX=g++
 CXXFLAGS += -std=gnu++11
 
 DNP3_DIR=../OpenPLC_v2/dnp3_build/install
+LIBCYAML = ../prime/libcyaml/build/release/libcyaml.a
+
 LIBS=-lpthread ../prime/OpenTC-1.1/TC-lib-1.0/.libs/libTC.a \
            ../spines/libspines/libspines.a ../prime/stdutil/lib/libstdutil.a \
 		   $(DNP3_DIR)/lib/libasiodnp3.a $(DNP3_DIR)/lib/libasiopal.a \
 		   $(DNP3_DIR)/lib/libopendnp3.a $(DNP3_DIR)/lib/libopenpal.a \
-		   -lrt -ldl -lcrypto -lm
+		   -lrt -ldl -lcrypto -lm $(LIBCYAML) -lyaml
 INC= -I ../prime/stdutil/include -I ../spines/libspines/ -I $(DNP3_DIR)/include
+INC += -I../prime/libcyaml/include
+
 TARGET=dnp3_master
 OBJECTS=main.o \
 		callback.o \
@@ -71,7 +75,10 @@ OBJECTS=main.o \
 		../common/tc_wrapper.o \
 		../common/key_value.o \
 		../config/cJSON.o \
-		../config/config_helpers.o
+		../config/config_helpers.o \
+		../prime/src/config_utils.o \
+		../prime/src/parser.o \
+		../prime/src/key_generation.o		
 
 all: $(TARGET) 
 

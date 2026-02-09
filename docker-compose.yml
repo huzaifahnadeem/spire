@@ -1,0 +1,376 @@
+networks:
+  spire-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.54.0/24
+          gateway: 192.168.54.1
+
+services:
+  spire1:
+    image: spire-img
+    container_name: aster1
+    hostname: aster1
+    environment:
+      - MY_HOSTNAME=aster1
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.10
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire2:
+    image: spire-img
+    container_name: aster2
+    hostname: aster2
+    environment:
+      - MY_HOSTNAME=aster2
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.11
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire3:
+    image: spire-img
+    container_name: aster3
+    hostname: aster3
+    environment:
+      - MY_HOSTNAME=aster3
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.12
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire4:
+    image: spire-img
+    container_name: aster4
+    hostname: aster4
+    environment:
+      - MY_HOSTNAME=aster4
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.13
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire5:
+    image: spire-img
+    container_name: aster5
+    hostname: aster5
+    environment:
+      - MY_HOSTNAME=aster5
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.14
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire6:
+    image: spire-img
+    container_name: aster6
+    hostname: aster6
+    environment:
+      - MY_HOSTNAME=aster6
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.15
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire7:
+    image: spire-img
+    container_name: aster7
+    hostname: aster7
+    environment:
+      - MY_HOSTNAME=aster7
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.16
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire8:
+    image: spire-img
+    container_name: aster8
+    hostname: aster8
+    environment:
+      - MY_HOSTNAME=aster8
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.17
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire9:
+    image: spire-img
+    container_name: aster9
+    hostname: aster9
+    environment:
+      - MY_HOSTNAME=aster9
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.18
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire10:
+    image: spire-img
+    container_name: aster10
+    hostname: aster10
+    environment:
+      - MY_HOSTNAME=aster10
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.19
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire11:
+    image: spire-img
+    container_name: aster11
+    hostname: aster11
+    environment:
+      - MY_HOSTNAME=aster11
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.20
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire12:
+    image: spire-img
+    container_name: aster12
+    hostname: aster12
+    environment:
+      - MY_HOSTNAME=aster12
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.21
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire13:
+    image: spire-img
+    container_name: aster13
+    hostname: aster13
+    environment:
+      - MY_HOSTNAME=aster13
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.22
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire14:
+    image: spire-img
+    container_name: aster14
+    hostname: aster14
+    environment:
+      - MY_HOSTNAME=aster14
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.23
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire15:
+    image: spire-img
+    container_name: aster15
+    hostname: aster15
+    environment:
+      - MY_HOSTNAME=aster15
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.24
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire16:
+    image: spire-img
+    container_name: aster16
+    hostname: aster16
+    environment:
+      - MY_HOSTNAME=aster16
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.25
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire17:
+    image: spire-img
+    container_name: aster17
+    hostname: aster17
+    environment:
+      - MY_HOSTNAME=aster17
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.26
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire18:
+    image: spire-img
+    container_name: aster18
+    hostname: aster18
+    environment:
+      - MY_HOSTNAME=aster18
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.27
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire19:
+    image: spire-img
+    container_name: aster19
+    hostname: aster19
+    environment:
+      - MY_HOSTNAME=aster19
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.28
+    # ports:
+    #   - 5050:5050
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  spire20:
+    image: spire-img
+    container_name: aster20
+    hostname: aster20
+    environment:
+      - MY_HOSTNAME=aster20
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.29
+    ports:
+      - 5050:5050
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  goldenrod1:
+    image: spire-img
+    container_name: goldenrod1
+    hostname: goldenrod1
+    environment:
+      - MY_HOSTNAME=goldenrod1
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.30
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  goldenrod2:
+    image: spire-img
+    container_name: goldenrod2
+    hostname: goldenrod2
+    environment:
+      - MY_HOSTNAME=goldenrod2
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.31
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  goldenrod3:
+    image: spire-img
+    container_name: goldenrod3
+    hostname: goldenrod3
+    environment:
+      - MY_HOSTNAME=goldenrod3
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.32
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true    
+
+  goldenrod4:
+    image: spire-img
+    container_name: goldenrod4
+    hostname: goldenrod4
+    environment:
+      - MY_HOSTNAME=goldenrod4
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.33
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  goldenrod5:
+    image: spire-img
+    container_name: goldenrod5
+    hostname: goldenrod5
+    environment:
+      - MY_HOSTNAME=goldenrod5
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.34
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true    
+
+  goldenrod6:
+    image: spire-img
+    container_name: goldenrod6
+    hostname: goldenrod6
+    environment:
+      - MY_HOSTNAME=goldenrod6
+    networks:
+      spire-net:
+        ipv4_address: 192.168.54.35
+    cap_add:
+      - NET_ADMIN
+    tty: true
+    stdin_open: true    

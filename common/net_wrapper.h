@@ -50,6 +50,8 @@
 #include "def.h"
 #include <stdint.h>
 #include <signal.h>
+#include "../prime/src/config_utils.h"
+#include "../prime/src/parser.h"
 
 #ifndef byte
 #define byte uint8_t
@@ -80,11 +82,11 @@ extern int32u My_Incarnation;
 extern int32u My_Global_Configuration_Number;
 extern int Prime_Client_ID;
 extern int My_IP;
-extern int All_Sites[NUM_SM];
-extern int CC_Replicas[NUM_CC_REPLICA];
-extern int CC_Sites[NUM_CC_REPLICA];
-extern char* Ext_Site_Addrs[NUM_CC];
-extern char* Int_Site_Addrs[NUM_SITES];
+// extern int All_Sites[NUM_SM];
+// extern int CC_Replicas[NUM_CC_REPLICA];
+// extern int CC_Sites[NUM_CC_REPLICA];
+// extern char* Ext_Site_Addrs[NUM_CC];
+// extern char* Int_Site_Addrs[NUM_SITES];
 extern sigset_t signal_mask;
 
 extern char Curr_Ext_Site_Addrs[MAX_NUM_SERVER_SLOTS][32];
@@ -96,6 +98,7 @@ extern int Curr_num_SM;
 extern int Curr_num_CC_Replica;
 extern int Curr_num_CC;
 extern int Curr_num_sites;
+extern int Curr_req_shares;
 
 //extern char *IP_Addr[NUM_SM];
 
@@ -106,7 +109,7 @@ extern int Curr_num_sites;
 # define MAX(a,b) (((a)>(b))?(a):(b))
 # define MIN(a,b) (((a)<(b))?(a):(b))
 
-void Init_SM_Replicas();
+void Init_SM_Replicas(struct config *cfg);
 void Reset_SM_def_vars(int32u N,int32u f, int32u k, int32u cc_replicas, int32u num_cc, int32 num_dc);
 void Reset_SM_Replicas(int32u tpm_based_id[MAX_NUM_SERVER_SLOTS],int replica_flag[MAX_NUM_SERVER_SLOTS],char spines_ext_addresses[MAX_NUM_SERVER_SLOTS][32],char spines_int_addresses[MAX_NUM_SERVER_SLOTS][32]);
 int  Is_CC_Replica(int id);
