@@ -1,6 +1,11 @@
 # Spire: Intrusion-Tolerant SCADA for the Power grid
 
-For more information, see [www.dsn.jhu.edu/spire/ ](https://www.dsn.jhu.edu/spire/)
+This is an experimental release of the Spire Intrusion-Tolerant SCADA System
+for the Power Grid. It provides support for a new reconfiguration capability
+that allows dynamically integrating a mobile control center to withstand or
+recover from severe compound threat impacts.
+
+For more information, see [https://jhu-dsn.github.io/spire/](https://jhu-dsn.github.io/spire/)
 
 ---
 
