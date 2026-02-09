@@ -1,0 +1,173 @@
+# 6-6-6 with CC1 and CC2 on Aster Servers with 1 replica per machine
+configuration_id: 1
+tolerated_byzantine_faults: 1
+tolerated_unavailable_replicas: 7
+
+sites:
+  - name: control_center1
+    type: CONTROL_CENTER
+    hosts:
+      - name: aster1
+        ip: 192.168.54.10
+        permanent_key_location: "tpm_keys/tpm_private1.key"
+        runs_spines_internal: 1
+        runs_spines_external: 1
+      - name: aster2
+        ip: 192.168.54.11
+        permanent_key_location: "tpm_keys/tpm_private2.key"
+      - name: aster3
+        ip: 192.168.54.12
+        permanent_key_location: "tpm_keys/tpm_private3.key"
+      - name: aster4
+        ip: 192.168.54.13
+        permanent_key_location: "tpm_keys/tpm_private4.key"
+      - name: aster5
+        ip: 192.168.54.14
+        permanent_key_location: "tpm_keys/tpm_private5.key"
+      - name: aster6
+        ip: 192.168.54.15
+        permanent_key_location: "tpm_keys/tpm_private6.key"
+
+    replicas:
+      - instance_id: 1
+        host: aster1
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+      - instance_id: 4
+        host: aster2
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+      - instance_id: 7
+        host: aster3
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+      - instance_id: 10
+        host: aster4
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+      - instance_id: 13
+        host: aster5
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+      - instance_id: 16
+        host: aster6
+        spines_internal_daemon: aster1
+        spines_external_daemon: aster1
+
+  - name: control_center2
+    type: CONTROL_CENTER
+    hosts:
+      - name: aster7
+        ip: 192.168.54.16
+        permanent_key_location: "tpm_keys/tpm_private7.key"
+        runs_spines_internal: 1
+        runs_spines_external: 1
+      - name: aster8
+        ip: 192.168.54.17
+        permanent_key_location: "tpm_keys/tpm_private8.key"
+      - name: aster9
+        ip: 192.168.54.18
+        permanent_key_location: "tpm_keys/tpm_private9.key"
+      - name: aster10
+        ip: 192.168.54.19
+        permanent_key_location: "tpm_keys/tpm_private10.key"
+      - name: aster11
+        ip: 192.168.54.20
+        permanent_key_location: "tpm_keys/tpm_private11.key"
+      - name: aster12
+        ip: 192.168.54.21
+        permanent_key_location: "tpm_keys/tpm_private12.key"
+
+    replicas:
+      - instance_id: 2
+        host: aster7
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+      - instance_id: 5
+        host: aster8
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+      - instance_id: 8
+        host: aster9
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+      - instance_id: 11
+        host: aster10
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+      - instance_id: 14
+        host: aster11
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+      - instance_id: 17
+        host: aster12
+        spines_internal_daemon: aster7
+        spines_external_daemon: aster7
+  
+  - name: data_center1
+    type: DATA_CENTER
+    hosts:
+      - name: aster13
+        ip: 192.168.54.22
+        permanent_key_location: "tpm_keys/tpm_private13.key"
+        runs_spines_internal: 1
+      - name: aster14
+        ip: 192.168.54.23
+        permanent_key_location: "tpm_keys/tpm_private14.key"
+      - name: aster15
+        ip: 192.168.54.24
+        permanent_key_location: "tpm_keys/tpm_private15.key"
+      - name: aster16
+        ip: 192.168.54.25
+        permanent_key_location: "tpm_keys/tpm_private16.key"
+      - name: aster17
+        ip: 192.168.54.26
+        permanent_key_location: "tpm_keys/tpm_private17.key"
+      - name: aster18
+        ip: 192.168.54.27
+        permanent_key_location: "tpm_keys/tpm_private18.key"
+
+    replicas:
+      - instance_id: 3
+        host: aster13
+        spines_internal_daemon: aster13
+      - instance_id: 6
+        host: aster14
+        spines_internal_daemon: aster13
+      - instance_id: 9
+        host: aster15
+        spines_internal_daemon: aster13
+      - instance_id: 12
+        host: aster16
+        spines_internal_daemon: aster13
+      - instance_id: 15
+        host: aster17
+        spines_internal_daemon: aster13
+      - instance_id: 18
+        host: aster18
+        spines_internal_daemon: aster13
+
+  - name: proxy_site
+    type: CLIENT
+    hosts:
+      - name: aster19
+        ip: 192.168.54.28
+        runs_spines_external: 1
+    # clients:
+    #   - client_id: 2 
+    #     host: aster19
+    #     spines_external_daemon: aster19
+    #     type: benchmark
+
+  - name: benchmark_site
+    type: CLIENT
+    hosts:
+      - name: aster20
+        ip: 192.168.54.29
+        runs_spines_external: 1
+    clients:
+      - client_id: 2 
+        host: aster20
+        spines_external_daemon: aster20
+        type: benchmark
+        
