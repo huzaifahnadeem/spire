@@ -251,7 +251,7 @@ void * modbus_tcp_server_loop(void * arg) {
                     else {
                         std::cout << "ERROR. Invalid data.val = 0x" << data_dot_val << "\n";
                     }
-                    system_ns::seq_pair seq = {.incarnation = system_ns::My_Incarnation, .seq_num = std::stoi(transaction_id)};
+                    system_ns::seq_pair seq = {.incarnation = system_ns::My_Incarnation, .seq_num = std::stoi(transaction_id, nullptr, 16)};
                     system_ns::signed_message * mess_to_send;
                     mess_to_send = system_ns::PKT_Construct_RTU_Feedback_Msg( // calling this fn similar to how SM.read_from_hmi calls it
                         seq,                        // = seq_pair seq

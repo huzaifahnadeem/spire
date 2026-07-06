@@ -8,6 +8,8 @@
 // #include "../../../OpenPLC_v2/libmodbus_src/src/modbus.h" // If we want to use libmodbus that comes with OpenPLC
 #include <modbus/modbus.h> // can install system-wise like: sudo yum install libmodbus-devel; # or sudo apt-get install libmodbus-dev;
 
+// #include <modbus.h> // for mac. install with `brew install libmodbus`. then compile like `g++ $(pkg-config --cflags --libs libmodbus) testprog_ovation_demo.cpp -o testprog_ovation_demo`. brew installs in `/opt/homebrew/Cellar/libmodbus`. `brew remove libmodbus` removes it
+
 // pnnl scenario:
 #define NUM_POINT 8
 #define NUM_POINT_ACTUAL 16
