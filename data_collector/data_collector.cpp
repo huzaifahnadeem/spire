@@ -317,12 +317,12 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << "]\n";
         datafile << ind << ind << ind << ind << "breaker_read:  [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << r_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+            datafile << +r_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
         }
         datafile << "]\n";
         datafile << ind << ind << ind << ind << "breaker_write: [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << w_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+            datafile << +w_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
         }
         datafile << "]\n";        
     }
