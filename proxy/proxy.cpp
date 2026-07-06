@@ -415,28 +415,36 @@ void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_
     this->send_to_dc(msg, nbytes, data_stream_id, "null");
 }
 
-void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes, int data_stream_id, std::string sys_id) {
+void DataCollectorManager::send_to_dc(signed_message *msg, int nbytes,
+                                      int data_stream_id, std::string sys_id) {
     if (this->no_data_collector)
         return;
 
-    int ret;
-    std::cout << "Forwarding a message to the data collector\n";
-    
-    DataCollectorPacket data_packet;
-    data_packet.data_stream = data_stream_id;
-    data_packet.system_message = *msg;
-    data_packet.nbytes_mess = nbytes;
-    
-    // data_packet.sys_id = sys_id;
-    int char_arr_size = 20;
-    strncpy(data_packet.sys_id, sys_id.c_str(), char_arr_size - 1);
-    data_packet.sys_id[char_arr_size - 1] = '\0';
-    
-    // data_packet.nbytes_struct = sizeof(signed_message) + msg->len + 3*sizeof(int) + data_packet.sys_id.size();
-    data_packet.nbytes_struct = sizeof(DataCollectorPacket) + msg->len + 3*sizeof(int) + sizeof(char[char_arr_size]);
+    const int char_arr_size = 20;
 
-    ret = spines_sendto(this->spinesd_socket, (void *)&data_packet, data_packet.nbytes_struct, 0, (struct sockaddr *)&this->dc_sockaddr_in, sizeof(struct sockaddr));
-    std::cout << "Sent to data collector with return code ret = " << ret << "\n";
+    // full SCADA/Prime message = header + content
+    size_t msg_total   = sizeof(signed_message) + msg->len;
+    // everything in DataCollectorPacket up to (but not including) system_message,
+    // plus the full message that follows it
+    size_t packet_size = offsetof(DataCollectorPacket, system_message) + msg_total;
+
+    std::vector<char> buf(packet_size);
+    DataCollectorPacket *pkt = reinterpret_cast<DataCollectorPacket *>(buf.data());
+
+    pkt->data_stream = data_stream_id;
+    pkt->nbytes_mess = nbytes;
+    strncpy(pkt->sys_id, sys_id.c_str(), char_arr_size - 1);
+    pkt->sys_id[char_arr_size - 1] = '\0';
+
+    // copy header + content contiguously into the trailing region
+    memcpy(&pkt->system_message, msg, msg_total);
+
+    pkt->nbytes_struct = static_cast<int>(packet_size);
+
+    int ret = spines_sendto(this->spinesd_socket, buf.data(), packet_size, 0,
+                            (struct sockaddr *)&this->dc_sockaddr_in,
+                            sizeof(struct sockaddr));
+    std::cout << "Forwarded a message to the data collector, ret = " << ret << "\n";
 }
 
 ClientManager::ClientManager(InputArgs args) {

@@ -4,6 +4,25 @@ const std::string default_logs_path = "./logs/";
 std::string log_files_dir;
 std::unordered_map<std::string, std::string> log_files_map;
 
+std::string getTextualBinary(int num, int numOfBits) {
+    if (num == 0) return "0";
+    
+    std::string binaryStr = "";
+    // Assume 32-bit integer (default value is 32-bit), iterate from Most Significant Bit (MSB) to Least Significant Bit
+    for (int i = numOfBits - 1; i >= 0; --i) {
+        if ((num >> i) & 1) {
+            binaryStr += '1';
+        } else if (!binaryStr.empty()) {
+            binaryStr += '0'; // Skip leading zeros
+        }
+    }
+    return binaryStr;
+}
+
+std::string getTextualBinary(int num) {
+    return getTextualBinary(num, 32);
+}
+
 int main(int ac, char **av) {
     std::string spinesd_ip_addr; // for spines daemon
     int spinesd_port;
@@ -71,12 +90,12 @@ int main(int ac, char **av) {
                 }
                 
                 // TODO: remove these if statements -- temporarily stopped the data collector from writing the HMI_UPDATE/RTU_DATA messages for the demo (there's too many of these messages)
-                bool go_ahead_w_writing = true;
-                if (((DataCollectorPacket *)buff)->system_message.type == HMI_UPDATE)
-                    go_ahead_w_writing = false;
-                if (((DataCollectorPacket *)buff)->system_message.type == RTU_DATA)
-                    go_ahead_w_writing = false;
-                if (go_ahead_w_writing) {
+                // bool go_ahead_w_writing = true;
+                // if (((DataCollectorPacket *)buff)->system_message.type == HMI_UPDATE)
+                //     go_ahead_w_writing = false;
+                // if (((DataCollectorPacket *)buff)->system_message.type == RTU_DATA)
+                //     go_ahead_w_writing = false;
+                // if (go_ahead_w_writing) {
                     std::cout << "data_collector: Received some data from spines daemon\n";
 
                     std::string sender_ipaddr;
@@ -86,7 +105,7 @@ int main(int ac, char **av) {
                     // write_data(log_files_dir, (signed_message *)buff, sender_ipaddr, sender_port);
                     write_data(log_files_dir, (DataCollectorPacket *)buff, sender_ipaddr, sender_port);
                     std::cout << "data_collector: Data has been written to disk\n";
-                }
+                // }
             }
         }
         else {
@@ -242,7 +261,9 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
     datafile << ind << "data: \n";
     datafile << ind << ind << "sig: '<";
     for (int i = 0; i < SIGNATURE_SIZE; i++) {
-        datafile << (int)data->sig[i] << "";
+        char hexbuf[3];
+        snprintf(hexbuf, sizeof(hexbuf), "%02x", data->sig[i]);
+        datafile << hexbuf;
     }
     datafile << ">'\n";
 
@@ -267,8 +288,8 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
         datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
         datafile << ind << ind << ind << "hmi_id: "             << msg_content->hmi_id << "\n";
-        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
-        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n"; // 2 = PNNL
+        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n"; // 4 = BREAKER_ON, 5 = BREAKER_OFF
         datafile << ind << ind << ind << "ttip_pos: "           << msg_content->ttip_pos << "\n";
     }
     else if (data->type == HMI_UPDATE) { // This type is RECEIVED BY the HMI-side Proxy
@@ -282,6 +303,28 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << "sec: "                << msg_content->sec << "\n";
         datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
         datafile << ind << ind << ind << "len: "                << msg_content->len << "\n";
+
+        int32u *p_arr;
+        char *r_arr, *w_arr;
+        p_arr = (int32u *)(msg_content + 1);
+        r_arr = (char *)(s_arr + NUM_POINT);
+        w_arr = (char *)(r_arr + NUM_BREAKER);
+        datafile << ind << ind << ind << "payload: "                 << "\n";
+        datafile << ind << ind << ind << ind << "point: [";
+        for (int i=0; i < NUM_POINT; i++) {
+            datafile << p_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+        }
+        datafile << "]\n";
+        datafile << ind << ind << ind << ind << "breaker_read:  [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << r_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+        }
+        datafile << "]\n";
+        datafile << ind << ind << ind << ind << "breaker_write: [";
+        for (int i = 0; i < NUM_BREAKER; i++) {
+            datafile << w_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+        }
+        datafile << "]\n";        
     }
     else if (data->type == PRIME_OOB_CONFIG_MSG) { // This type is RECEIVED BY the HMI-side Proxy & the RTU/PLC-side Proxy (from ITRC)
         config_message * msg_content = NULL;
@@ -313,16 +356,15 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << "seq:\n";
         datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
         datafile << ind << ind << ind << ind << "seq_num: "     << msg_content_seq.seq_num << "\n";
-        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n";
-        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n";
+        datafile << ind << ind << ind << "scen_type: "          << msg_content->scen_type << "\n"; // 2 = PNNL
+        datafile << ind << ind << ind << "type: "               << msg_content->type << "\n"; // 2 = BREAKER (others not used for PNNL)
         datafile << ind << ind << ind << "sub: "                << msg_content->sub << "\n";
-        datafile << ind << ind << ind << "rtu: "                << msg_content->rtu << "\n";
-        datafile << ind << ind << ind << "offset: "             << msg_content->offset << "\n";
-        datafile << ind << ind << ind << "val: "                << msg_content->val << "\n";
+        datafile << ind << ind << ind << "rtu: "                << msg_content->rtu << "\n"; // this is the client we are sending to
+        datafile << ind << ind << ind << "offset: "             << msg_content->offset << "\n"; // this is the address we are writing at
+        datafile << ind << ind << ind << "val: "                << msg_content->val << "\n"; // this is the val we are writing at the addr
     }
     else if (data->type == RTU_DATA) { // This type is RECEIVED BY the RTU/PLC-side Proxy (from RTUs/PLCs)
-        rtu_data_msg * msg_content = NULL;
-        msg_content = (rtu_data_msg *)(data + 1);
+        rtu_data_msg * msg_content = (rtu_data_msg *)(data + 1);
         seq_pair msg_content_seq = msg_content->seq; // since msg_content->seq is of type struct seq_pair, it cant be printed directly and we need to separately write its fields
         datafile << ind << ind << ind << "seq:\n";
         datafile << ind << ind << ind << ind << "incarnation: " << msg_content_seq.incarnation << "\n";
@@ -332,21 +374,48 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << "sec: "                << msg_content->sec << "\n";
         datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
         datafile << ind << ind << ind << "data_(aka_payload):\n";
-        pnnl_fields * payload = (pnnl_fields *)msg_content->data; // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
+        pnnl_fields * payload = (pnnl_fields *)(msg_content->data); // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
         datafile << ind << ind << ind << ind << "padd1: "<< payload->padd1 << "\n";
         datafile << ind << ind << ind << ind << "point: [";
+
+        // Holding Registers:
         for (int i = 0; i < NUM_POINT; i++) {
-            datafile << payload->point[i] << ((i < NUM_POINT-1) ? ", " : ""); // adding a comma to make it a proper list. dont print comma for the last element
+            uint8_t byte1, byte2, byte3, byte4;
+
+            // payload->point[i] is uint32_t. stores two 16-bit registers (so 2 bytes each)
+            byte1 = (payload->point[i] >> 24); // high
+            byte2 = (payload->point[i] >> 16);
+            byte3 = (payload->point[i] >> 8);
+            byte4 = (payload->point[i] >> 0); // low
+
+            // ref to modbus_master.c: readModbus() for more on this translation
+            uint16_t reg0, reg1 = 0;
+
+            reg0 = byte3; 
+            reg0 = reg0 << 8; 
+            reg0 = reg0 | byte4; 
+
+            reg1 = byte1; 
+            reg1 = reg1 << 8; 
+            reg1 = reg1 | byte2; 
+
+            datafile << reg0 << ", " << reg1 << "; ";
+            // datafile << getTextualBinary(reg0, 16) << ", " << getTextualBinary(reg1, 16) << "; ";
         }
+
         datafile << "]\n";
         datafile << ind << ind << ind << ind << "breaker_read: [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_read[i] << ((i < NUM_BREAKER-1) ? ", " : ""); // the '+' makes it print as a number. Im not sure what the value exactly means but it seems its binary value is manipulated somehow when it is actually used. so i just save the numerical equivalent value for the element
+            uint8_t br = payload->breaker_read[i]; // Input Status Bit.
+            datafile << +br << ((i < NUM_BREAKER-1) ? ", " : "");
+            // datafile << getTextualBinary(br, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
         }
         datafile << "]\n";
         datafile << ind << ind << ind << ind << "breaker_write: [";
         for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +payload->breaker_write[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+            uint8_t bw = payload->breaker_write[i]; // Coil.
+            datafile << +bw << ((i < NUM_BREAKER-1) ? ", " : "");
+            // datafile << getTextualBinary(bw, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
         }
         datafile << "]\n";
     }
