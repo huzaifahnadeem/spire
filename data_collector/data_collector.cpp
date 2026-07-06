@@ -307,7 +307,7 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         int32u *p_arr;
         char *r_arr, *w_arr;
         p_arr = (int32u *)(msg_content + 1);
-        r_arr = (char *)(s_arr + NUM_POINT);
+        r_arr = (char *)(p_arr + NUM_POINT);
         w_arr = (char *)(r_arr + NUM_BREAKER);
         datafile << ind << ind << ind << "payload: "                 << "\n";
         datafile << ind << ind << ind << ind << "point: [";
