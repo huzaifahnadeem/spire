@@ -399,7 +399,7 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
             reg1 = reg1 << 8; 
             reg1 = reg1 | byte2; 
 
-            datafile << reg0 << ", " << reg1 << ", ";
+            datafile << reg0 << ", " << reg1 << ", "; // reg0 has the lower order 16-bits, reg1 has the higher order 16-bits. together they store the whole 32-bit value for the dials/points
             // datafile << getTextualBinary(reg0, 16) << ", " << getTextualBinary(reg1, 16) << "; ";
         }
 
