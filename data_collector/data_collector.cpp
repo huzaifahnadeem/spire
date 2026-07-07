@@ -399,7 +399,7 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
             reg1 = reg1 << 8; 
             reg1 = reg1 | byte2; 
 
-            datafile << reg0 << ", " << reg1 << "; ";
+            datafile << reg0 << ", " << reg1 << ", ";
             // datafile << getTextualBinary(reg0, 16) << ", " << getTextualBinary(reg1, 16) << "; ";
         }
 
