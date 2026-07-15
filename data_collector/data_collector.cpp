@@ -304,27 +304,67 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
         datafile << ind << ind << ind << "len: "                << msg_content->len << "\n";
 
-        int32u *p_arr;
-        char *r_arr, *w_arr;
-        p_arr = (int32u *)(msg_content + 1);
-        r_arr = (char *)(p_arr + NUM_POINT);
-        w_arr = (char *)(r_arr + NUM_BREAKER);
+        
         datafile << ind << ind << ind << "payload: "                 << "\n";
-        datafile << ind << ind << ind << ind << "point: [";
-        for (int i=0; i < NUM_POINT; i++) {
-            datafile << p_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+        
+        if (msg_content->scen_type == PNNL) {
+            int32u *p_arr;
+            char *r_arr, *w_arr;
+            p_arr = (int32u *)(msg_content + 1);
+            r_arr = (char *)(p_arr + NUM_POINT);
+            w_arr = (char *)(r_arr + NUM_BREAKER);
+            datafile << ind << ind << ind << ind << "point: [";
+            for (int i=0; i < NUM_POINT; i++) {
+                datafile << p_arr[i] << ((i < NUM_POINT-1) ? ", " : "");
+            }
+            datafile << "]\n";
+            datafile << ind << ind << ind << ind << "breaker_read:  [";
+            for (int i = 0; i < NUM_BREAKER; i++) {
+                datafile << +r_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+            }
+            datafile << "]\n";
+            datafile << ind << ind << ind << ind << "breaker_write: [";
+            for (int i = 0; i < NUM_BREAKER; i++) {
+                datafile << +w_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+            }
+            datafile << "]\n";        
         }
-        datafile << "]\n";
-        datafile << ind << ind << ind << ind << "breaker_read:  [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +r_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+        else if (msg_content->scen_type == JHU) {
+            char * stat_ptr;
+            stat_ptr = (char *)(msg_content + 1);
+            datafile << ind << ind << ind << ind << "stat_ptr: [";
+            for(int i = 0; i < msg_content->len; i++) {
+                datafile << stat_ptr[i] << ((i < msg_content->len-1) ? ", " : "");
+            }
+            datafile << "]\n";
         }
-        datafile << "]\n";
-        datafile << ind << ind << ind << ind << "breaker_write: [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            datafile << +w_arr[i] << ((i < NUM_BREAKER-1) ? ", " : "");
+        else if (msg_content->scen_type == EMS) {
+            ems_fields *payload_ems;
+            payload_ems = (ems_fields *)(msg_content + 1);
+
+            // ems_fields struct:
+            //    int32u id;
+            //    int32u status;
+            //    int32u max_generation;
+            //    int32u curr_generation;
+            //    int32u target_generation;
+            //    int32u padd1[EMS_DATA_PADDING / sizeof(int32u)];
+            datafile << ind << ind << ind << ind << "id: "                << payload_ems->id                << "\n";
+            datafile << ind << ind << ind << ind << "status: "            << payload_ems->status            << "\n";
+            datafile << ind << ind << ind << ind << "max_generation: "    << payload_ems->max_generation    << "\n";
+            datafile << ind << ind << ind << ind << "curr_generation: "   << payload_ems->curr_generation   << "\n";
+            datafile << ind << ind << ind << ind << "target_generation: " << payload_ems->target_generation << "\n";
+
+            int padd1_size = EMS_DATA_PADDING / sizeof(int32u);
+            datafile << ind << ind << ind << ind << "padd1: [";
+            for (int i = 0; i < padd1_size; i++) {
+                datafile << payload_ems->padd1[i] << ((i < padd1_size-1) ? ", " : "");
+            }
+            datafile << "]\n";
         }
-        datafile << "]\n";        
+        else {
+            datafile << ind << ind << ind << ind << "unknown scenario\n";
+        }
     }
     else if (data->type == PRIME_OOB_CONFIG_MSG) { // This type is RECEIVED BY the HMI-side Proxy & the RTU/PLC-side Proxy (from ITRC)
         config_message * msg_content = NULL;
@@ -374,50 +414,112 @@ void write_sys_data_yaml(std::string log_file_path, struct DataCollectorPacket *
         datafile << ind << ind << ind << "sec: "                << msg_content->sec << "\n";
         datafile << ind << ind << ind << "usec: "               << msg_content->usec << "\n";
         datafile << ind << ind << ind << "data_(aka_payload):\n";
-        pnnl_fields * payload = (pnnl_fields *)(msg_content->data); // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
-        datafile << ind << ind << ind << ind << "padd1: "<< payload->padd1 << "\n";
-        datafile << ind << ind << ind << ind << "point: [";
 
-        // Holding Registers:
-        for (int i = 0; i < NUM_POINT; i++) {
-            uint8_t byte1, byte2, byte3, byte4;
+        if (msg_content->scen_type == PNNL) {
+            pnnl_fields * payload = (pnnl_fields *)(msg_content->data); // since msg_content->data is of type struct pnnl_fields, it cant be printed directly and we need to separately write its fields
+            
+            // pnnl_fields struct:
+            //    int32u padd1;
+            //    int32u point[NUM_POINT];
+            //    unsigned char breaker_read[NUM_BREAKER];
+            //    unsigned char breaker_write[NUM_BREAKER];
 
-            // payload->point[i] is uint32_t. stores two 16-bit registers (so 2 bytes each)
-            byte1 = (payload->point[i] >> 24); // high
-            byte2 = (payload->point[i] >> 16);
-            byte3 = (payload->point[i] >> 8);
-            byte4 = (payload->point[i] >> 0); // low
+            datafile << ind << ind << ind << ind << "padd1: "<< payload->padd1 << "\n";
+            datafile << ind << ind << ind << ind << "point: [";
 
-            // ref to modbus_master.c: readModbus() for more on this translation
-            uint16_t reg0, reg1 = 0;
+            // Holding Registers:
+            for (int i = 0; i < NUM_POINT; i++) {
+                uint8_t byte1, byte2, byte3, byte4;
 
-            reg0 = byte3; 
-            reg0 = reg0 << 8; 
-            reg0 = reg0 | byte4; 
+                // payload->point[i] is uint32_t. stores two 16-bit registers (so 2 bytes each)
+                byte1 = (payload->point[i] >> 24); // high
+                byte2 = (payload->point[i] >> 16);
+                byte3 = (payload->point[i] >> 8);
+                byte4 = (payload->point[i] >> 0); // low
 
-            reg1 = byte1; 
-            reg1 = reg1 << 8; 
-            reg1 = reg1 | byte2; 
+                // ref to modbus_master.c: readModbus() for more on this translation
+                uint16_t reg0, reg1 = 0;
 
-            datafile << reg0 << ", " << reg1 << ", "; // reg0 has the lower order 16-bits, reg1 has the higher order 16-bits. together they store the whole 32-bit value for the dials/points
-            // datafile << getTextualBinary(reg0, 16) << ", " << getTextualBinary(reg1, 16) << "; ";
+                reg0 = byte3; 
+                reg0 = reg0 << 8; 
+                reg0 = reg0 | byte4; 
+
+                reg1 = byte1; 
+                reg1 = reg1 << 8; 
+                reg1 = reg1 | byte2; 
+
+                datafile << reg0 << ", " << reg1 << ", "; // reg0 has the lower order 16-bits, reg1 has the higher order 16-bits. together they store the whole 32-bit value for the dials/points
+                // datafile << getTextualBinary(reg0, 16) << ", " << getTextualBinary(reg1, 16) << "; ";
+            }
+
+            datafile << "]\n";
+            datafile << ind << ind << ind << ind << "breaker_read: [";
+            for (int i = 0; i < NUM_BREAKER; i++) {
+                uint8_t br = payload->breaker_read[i]; // Input Status Bit.
+                datafile << +br << ((i < NUM_BREAKER-1) ? ", " : "");
+                // datafile << getTextualBinary(br, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
+            }
+            datafile << "]\n";
+            datafile << ind << ind << ind << ind << "breaker_write: [";
+            for (int i = 0; i < NUM_BREAKER; i++) {
+                uint8_t bw = payload->breaker_write[i]; // Coil.
+                datafile << +bw << ((i < NUM_BREAKER-1) ? ", " : "");
+                // datafile << getTextualBinary(bw, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
+            }
+            datafile << "]\n";
+            
         }
+        else if (msg_content->scen_type == JHU) {
+            jhu_fields * payload_jhu = (jhu_fields *)(msg_content->data); // since msg_content->data is of type struct jhu_fields, it cant be printed directly and we need to separately write its fields
+            
+            // jhu_fields struct:
+            //   int32_t tx_status;
+            //   int32_t sw_status[MAX_SWITCHES];
+            //   int32u  padd1;
+            //   int32u  padd2;
+            //   int32u  padd3;
+            //   int32u  padd4;
+            //   int32u  padd5;
+            datafile << ind << ind << ind << ind << "tx_status: " << payload_jhu->tx_status << "\n";
 
-        datafile << "]\n";
-        datafile << ind << ind << ind << ind << "breaker_read: [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            uint8_t br = payload->breaker_read[i]; // Input Status Bit.
-            datafile << +br << ((i < NUM_BREAKER-1) ? ", " : "");
-            // datafile << getTextualBinary(br, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
+            datafile << ind << ind << ind << ind << "sw_status: [";
+            for (int i = 0; i < MAX_SWITCHES; i++) {
+                datafile << payload_jhu->sw_status[i] << ((i < MAX_SWITCHES-1) ? ", " : "");
+            }
+            datafile << "]\n";
+
+            datafile << ind << ind << ind << ind << "padd1: " << payload_jhu->padd1 << "\n";
+            datafile << ind << ind << ind << ind << "padd2: " << payload_jhu->padd2 << "\n";
+            datafile << ind << ind << ind << ind << "padd3: " << payload_jhu->padd3 << "\n";
+            datafile << ind << ind << ind << ind << "padd4: " << payload_jhu->padd4 << "\n";
+            datafile << ind << ind << ind << ind << "padd5: " << payload_jhu->padd5 << "\n";
         }
-        datafile << "]\n";
-        datafile << ind << ind << ind << ind << "breaker_write: [";
-        for (int i = 0; i < NUM_BREAKER; i++) {
-            uint8_t bw = payload->breaker_write[i]; // Coil.
-            datafile << +bw << ((i < NUM_BREAKER-1) ? ", " : "");
-            // datafile << getTextualBinary(bw, 8) << ((i < NUM_BREAKER-1) ? ", " : "");
+        else if (msg_content->scen_type == EMS) {
+            ems_fields * payload_ems = (ems_fields *)(msg_content->data); // since msg_content->data is of type struct ems_fields, it cant be printed directly and we need to separately write its fields
+            
+            // ems_fields struct:
+            //    int32u id;
+            //    int32u status;
+            //    int32u max_generation;
+            //    int32u curr_generation;
+            //    int32u target_generation;
+            //    int32u padd1[EMS_DATA_PADDING / sizeof(int32u)];
+            datafile << ind << ind << ind << ind << "id: "                << payload_ems->id                << "\n";
+            datafile << ind << ind << ind << ind << "status: "            << payload_ems->status            << "\n";
+            datafile << ind << ind << ind << ind << "max_generation: "    << payload_ems->max_generation    << "\n";
+            datafile << ind << ind << ind << ind << "curr_generation: "   << payload_ems->curr_generation   << "\n";
+            datafile << ind << ind << ind << ind << "target_generation: " << payload_ems->target_generation << "\n";
+
+            int padd1_size = EMS_DATA_PADDING / sizeof(int32u);
+            datafile << ind << ind << ind << ind << "padd1: [";
+            for (int i = 0; i < padd1_size; i++) {
+                datafile << payload_ems->padd1[i] << ((i < padd1_size-1) ? ", " : "");
+            }
+            datafile << "]\n";
         }
-        datafile << "]\n";
+        else {
+            datafile << ind << ind << ind << ind << "unknown scenario\n";
+        }
     }
     // else case: if unknown data type then nothing to print.
     
