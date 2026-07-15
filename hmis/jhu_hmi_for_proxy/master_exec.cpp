@@ -59,19 +59,13 @@ extern "C" {
     #include "openssl_rsa.h"
 }
 
-
-int ipc_sock_to_proxy;
-int ipc_sock_from_proxy;
-
 void Process_Message(signed_message *);
 void Process_Config_Msg(signed_message * conf_mess,int mess_size);
 
 DATA *d = NULL;
 
-void Init_Master(DATA *dd) 
-{
-    d = dd;
-}
+int ipc_sock_to_proxy;
+int ipc_sock_from_proxy;
 
 void forward_to_proxy(signed_message *mess) {
     std::cout << "Forwarding message to proxy.\n";
@@ -85,6 +79,11 @@ void forward_to_proxy(signed_message *mess) {
         std::cout << "Message sent. ret = " << ret << "\n";
     }
     // not freeing mess here. that is assumed to be done after this function is called.
+}
+
+void Init_Master(DATA *dd) 
+{
+    d = dd;
 }
 
 void Process_Config_Msg(signed_message * conf_mess,int mess_size){

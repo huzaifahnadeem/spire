@@ -66,8 +66,6 @@ extern "C" {
 }
 
 extern unsigned int Seq_Num;
-extern int ipc_sock;
-extern itrc_data itrc_in;
 
 static int slotInit(PARAM *p, DATA *d)
 {

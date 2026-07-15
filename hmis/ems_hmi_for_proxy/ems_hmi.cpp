@@ -60,6 +60,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <signal.h>
 
 //Include other headers
 #include "pvapp.h"
@@ -69,6 +70,8 @@ extern "C" {
     #include "net_wrapper.h"
     #include "def.h"
     #include "itrc.h"
+    #include "spu_events.h"
+    #include "stdutil/stdcarr.h"
 }
 
 // todo: comment me out. you can insert these objects as extern in your masks.
@@ -77,7 +80,22 @@ extern "C" {
 //rlPPIClient        ppi(ppidaemon_MAILBOX,ppidaemon_SHARED_MEMORY,ppidaemon_SHARED_MEMORY_SIZE);
 
 unsigned int Seq_Num;
+struct timeval min_wait;
+data_model the_model;
+history_model the_history_model;
+int Script_Running;
+int Script_Button_Pushed;
+int Script_Pipe[2];
+stdcarr Script_History = STDCARR_STATIC_CONSTRUCT(80,0);
+int Script_History_Seq;
+int Script_Breaker_Index;
+int Script_Breaker_Val;
+sp_time Next_Button, Button_Pressed_Duration;
 extern int32u My_Global_Configuration_Number;
+
+int renewable_active[3];
+
+extern void modelInit();
 
 void setup_for_proxy()
 {
@@ -87,24 +105,31 @@ void setup_for_proxy()
 
 void *master_connection(void *arg) 
 {
-    fd_set active_fd_set, read_fd_set;
+    UNUSED(arg);
 
-    if(arg != NULL)
-        return NULL;
-  
+    E_init();
+    //fd_set active_fd_set, read_fd_set;
+
     // Init data structures for select()
-    FD_ZERO(&active_fd_set);
-    FD_SET(ipc_sock_from_proxy, &active_fd_set);
+    //FD_ZERO(&active_fd_set);
+    //FD_SET(ipc_sock, &active_fd_set);
 
-    while(1) {
+    E_attach_fd(ipc_sock_from_proxy, READ_FD, Read_From_Master, 0, NULL, MEDIUM_PRIORITY);
+    E_attach_fd(Script_Pipe[0], READ_FD, Execute_Script, 0, NULL, MEDIUM_PRIORITY);
+
+    E_handle_events();
+
+    /* while(1) {
 
         read_fd_set = active_fd_set;
         select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
         
-        if(FD_ISSET(ipc_sock_from_proxy, &read_fd_set)) {
-            Read_From_Master(ipc_sock_from_proxy);
+        if(FD_ISSET(ipc_sock, &read_fd_set)) {
+            Read_From_Master(ipc_sock);
         }
-    }
+    } */
+
+    return NULL;
 }
 
 int pvMain(PARAM *p)
@@ -123,6 +148,14 @@ int pvMain(PARAM *p)
         if(trace) printf("show_mask%d\n", ret);
         switch(ret)
         {
+            case 3:
+                pvStatusMessage(p,-1,-1,-1,"mask3");
+                ret = show_mask3(p);
+                break;
+            case 2:
+                pvStatusMessage(p,-1,-1,-1,"mask2");
+                ret = show_mask2(p);
+                break;
             case 1:
                 pvStatusMessage(p,-1,-1,-1,"mask1");
                 ret = show_mask1(p);
@@ -139,6 +172,9 @@ int main(int ac, char **av)
     PARAM p;
     pthread_t tid;
 
+    signal(SIGPIPE, SIG_IGN);
+    modelInit();
+
     setup_for_proxy();
     pthread_create(&tid, NULL, &master_connection, NULL);
 
@@ -153,6 +189,9 @@ int main(int ac, char **av)
     PARAM p;
     int s;
     pthread_t tid;
+
+    signal(SIGPIPE, SIG_IGN);
+    modelInit();
 
     setup_for_proxy();
     pthread_create(&tid, NULL, &master_connection, NULL);
