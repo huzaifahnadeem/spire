@@ -214,6 +214,10 @@ signed_message *PKT_Construct_TC_Final_Msg(ordinal o, tc_node *tcn)
 
     TC_Initialize_Combine_Phase(Curr_num_SM + 1);
 
+    /* reference = own share*/
+    tc_share_msg *own = (tc_share_msg *)&tcn->shares[My_ID];
+    signed_message *own_hdr = (signed_message *)own->payload;
+
     copied_payload = 0;
     count = 0;
     for (i = 1; i <= Curr_num_SM; i++) {
@@ -228,9 +232,18 @@ signed_message *PKT_Construct_TC_Final_Msg(ordinal o, tc_node *tcn)
             continue;
         }
 
-        /* Compare digests? May be helpful to pass in the latest digest that
+        /* TODO May be helpful to pass in the latest digest that
          *   led to this call, since only it has the chance to have reached 
          *   REQ_SHARES */
+
+        /* skip shares whose payload doesn't match the reference */
+        /* compare only the body past the signed_message header —
+         * sig and machine_id differ per replica even for identical commands */
+        signed_message *tc_hdr = (signed_message *)tc->payload;
+        if (tc_hdr->len != own_hdr->len ||
+            memcmp(tc_hdr + 1, own_hdr + 1, own_hdr->len)) {
+            continue;
+        }
 
         if (copied_payload == 0) {
             memcpy(tcf->payload, tc->payload, sizeof(tcf->payload));

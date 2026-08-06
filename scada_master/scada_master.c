@@ -67,6 +67,10 @@
 #define COMPROMISE_DEMO 0
 #endif
 
+#if COMPROMISE_DEMO
+#include <pthread.h>
+#endif
+
 int ipc_sock;
 itrc_data itrc_main, itrc_thread;
 
@@ -111,6 +115,41 @@ int Verify_Config_msg(signed_message *);
 // the function reads and ignores anything already in the file
 // then it saves the last position where it read from 
 // so keep on appending to the end of the file for new 'attack' instructions
+
+static pthread_mutex_t attack_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct {
+    int      armed;        /* 0 = inactive, 1 = fire on next HMI command   */
+    int      breaker_pos;  /* attacker's chosen breaker index              */
+    int      val;          /* 1 = BREAKER_ON, 0 = BREAKER_OFF */
+    int      one_shot;     /* disarm after firing once                     */
+} atk = {0, 0, 0, 1};
+
+/* New attack.txt line format:  1_<breaker_pos>_<onoff>
+ * No seq/ordinal tokens anymore — we override the real ordinal. */
+
+void apply_attack(char *attack_instr) {
+    size_t len = strlen(attack_instr);
+    if (len > 0 && attack_instr[len - 1] == '\n') attack_instr[len - 1] = '\0';
+
+    char *type = strtok(attack_instr, "_");
+    if (type == NULL) return;
+
+    if (strcmp(type, "1") == 0) {
+        char *tok_pos   = strtok(NULL, "_");
+        char *tok_onoff = strtok(NULL, "_");
+        if (!tok_pos || !tok_onoff) { printf("apply_attack: bad args\n"); return; }
+
+        pthread_mutex_lock(&attack_lock);
+        atk.breaker_pos = atoi(tok_pos);
+        atk.val         = atoi(tok_onoff);
+        atk.armed       = 1;
+        pthread_mutex_unlock(&attack_lock);
+        printf("apply_attack: ARMED breaker %d -> %d\n", atk.breaker_pos, atk.val);
+    } else {
+        printf("apply_attack: unrecognized token\n");
+    }
+}
+/* old apply_attack fn:
 void apply_attack(char * attack_instr) {
     // attack_instr format:
     // 1:
@@ -130,7 +169,7 @@ void apply_attack(char * attack_instr) {
         char *tok_seq_num;
         tok_seq_num = strtok(NULL, delimiter);
         seq_pair this_seq_pair;
-        this_seq_pair.incarnation = atoi(tok_seq_inc);
+        this_seq_pair.incarnation = My_Incarnation;//atoi(tok_seq_inc);
         this_seq_pair.seq_num = atoi(tok_seq_num);
 
         char *tok_breaker_pos;
@@ -148,9 +187,9 @@ void apply_attack(char * attack_instr) {
                         BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, atoi(tok_breaker_pos), cmd_val);
         
         ordinal o_fake;
-        o_fake.event_idx = 99;
-        o_fake.event_tot = 99;
-        o_fake.ord_num = 99;
+        o_fake.event_idx = 150;
+        o_fake.event_tot = 150;
+        o_fake.ord_num = 150;
         stddll_push_back(&ord_queue, &o_fake);
 
         int nbytes = sizeof(signed_message) + sizeof(rtu_feedback_msg);
@@ -221,6 +260,7 @@ void apply_attack(char * attack_instr) {
         return;
     }
 }
+*/
 void* read_file(void *arg) {
     UNUSED(arg);
     char filename[] = "./attack.txt";
@@ -858,9 +898,23 @@ void read_from_hmi(signed_message *mess)
         else if (payload->type == BREAKER_OFF) {
             val = 0;
         }
+	int fb_pos = payload->ttip_pos;
+
+	#if COMPROMISE_DEMO
+        
+	pthread_mutex_lock(&attack_lock);
+        if (atk.armed) {
+            fb_pos = atk.breaker_pos;     /* override target breaker */
+            val    = atk.val;             /* override to fixed ON/OFF (deterministic) */
+            if (atk.one_shot) atk.armed = 0;
+            printf("COMPROMISE DEMO: substituting -> breaker %d = %d (ord rides this HMI cmd)\n", fb_pos, val);
+        }
+        pthread_mutex_unlock(&attack_lock);
+        
+        #endif
 
         dad_mess = PKT_Construct_RTU_Feedback_Msg(payload->seq, payload->scen_type,
-                        BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, payload->ttip_pos, val);
+                        BREAKER, PNNL_RTU_ID, PNNL_RTU_ID, fb_pos, val);
     }
     else if (payload->scen_type == EMS) {
         /* payload->type is the updated Target value
