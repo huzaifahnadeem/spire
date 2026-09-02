@@ -453,8 +453,13 @@ printf("\n-----End user %d-----\n", i);
 		for(j=0; j<dealer->l; j+=2)
 		{
 			e = BN_dup((tci->vki)[j]);
-			if(j+1 != dealer->l)
+			if(j+1 != dealer->l) {
 				n = BN_dup((tci->vki)[j+1]);
+			} 
+			else {
+				n = BN_new();
+				BN_zero(n);
+        	}
             RSA_set0_key(current, n, e, NULL);
 			PEM_write_RSAPublicKey(out,current);
 		}

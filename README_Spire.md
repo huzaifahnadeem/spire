@@ -175,7 +175,8 @@ There are several configuration files relevant to the Spire system:
 ## Installation Prerequisites
 
 ### General Prerequisites
-
+- gcc, g++, cmake
+  * e.g. `yum install gcc cmake g++`, `apt-get install gcc cmake g++`
 - OpenSSL development package
     * e.g. `yum install openssl-devel`, `apt-get install libssl-dev`
 
