@@ -243,16 +243,20 @@ void IOProcManager::fork_io_proc(IOProcess &io_proc, std::string id) {
     }
 }
 void IOProcManager::kill_io_proc(std::string id) {
-    // ignore if the active system is requested to be killed
-    if (id == this->get_active_sys_id()) {
-        std::cout << std::setw(20) << "IOProcManager::kill_io_proc: ignoring request to kill the active io process\n";
-        return;
+    if (this->io_procs.count(id)) { // checking if an io proc with this id exists (count = 1 -> run rest of function, count = 0 -> return)
+    
+        // ignore if the active system is requested to be killed
+        if (id == this->get_active_sys_id()) {
+            std::cout << std::setw(20) << "IOProcManager::kill_io_proc: ignoring request to kill the active io process\n";
+            return;
+        }
+        // kills the process and lets the event handler know it should no longer listen for any messages
+        IOProcess this_io_proc = io_procs[id];
+        kill(this_io_proc.pid, SIGTERM); // TODO: what kind of signal should i send?
+        E_detach_fd(this->io_procs[id].sockets.from, READ_FD); // tell the event handler that it no longer needs to handle for this socket
+        this->args_for_io_proc_message_handler.erase(id);
+        
     }
-    // kills the process and lets the event handler know it should no longer listen for any messages
-    IOProcess this_io_proc = io_procs[id];
-    kill(this_io_proc.pid, SIGTERM); // TODO: what kind of signal should i send?
-    E_detach_fd(this->io_procs[id].sockets.from, READ_FD); // tell the event handler that it no longer needs to handle for this socket
-    this->args_for_io_proc_message_handler.erase(id);
 }
 void IOProcManager::start_all_io_procs() {
     for (auto & [id, this_io_proc]: this->io_procs) {
