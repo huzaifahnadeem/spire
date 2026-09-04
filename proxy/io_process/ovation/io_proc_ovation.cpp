@@ -83,6 +83,8 @@ void * modbus_tcp_server_loop(void * arg) {
         return NULL;
     }
 
+    modbus_set_byte_timeout(ctx, 10, 0);  // return -1 if no byte arrives in 10s
+
     // Set Debug mode (optional, prints raw bytes to console)
     modbus_set_debug(ctx, TRUE);
 
@@ -272,7 +274,9 @@ void * modbus_tcp_server_loop(void * arg) {
                 }
             } else if (query_len == -1) {
                 // Connection closed by the client or error
-                break; 
+                std::cout << "IO process for Ovation: Client disconnected." << std::endl;
+                modbus_close(ctx);  // close the dead client socket, ctx remains reusable
+                break;
             }
         }
         

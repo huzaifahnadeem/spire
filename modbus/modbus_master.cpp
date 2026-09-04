@@ -727,8 +727,32 @@ static int modbusCycle(int slave, int function, int start_adr, int num_register,
     if (debug) printf("modbusResponse: ret=%d slave=%d function=%d data=%02x %02x %02x %02x\n",
                                     ret, slave, function, data[0], data[1], data[2], data[3]);
 
-    if (function != sent_function){
-        printf("MS2022: function=%d, sent_function=%d\n",function,sent_function);
+    // if (function != sent_function){
+    //     printf("MS2022: function=%d, sent_function=%d\n",function,sent_function);
+    //     ret = -1;
+    // }
+
+    if (ret < 0) {
+        printf("modbus connection error, reconnecting\n");
+        sock_array[i]->disconnect();
+        int reconnect_ret = -1;
+        while (reconnect_ret < 0) {
+            sleep(1);
+            reconnect_ret = sock_array[i]->connect();
+            if (reconnect_ret < 0)
+                printf("reconnect failed, retrying\n");
+        }
+        printf("reconnected\n");
+    } else if (function != sent_function) {
+        printf("function=%d, sent_function=%d -- reconnecting\n", function, sent_function);
+        sock_array[i]->disconnect();
+        int reconnect_ret = -1;
+        while (reconnect_ret < 0) {
+            sleep(1);
+            reconnect_ret = sock_array[i]->connect();
+            if (reconnect_ret < 0)
+                printf("reconnect failed, retrying\n");
+        }
         ret = -1;
     }
 
