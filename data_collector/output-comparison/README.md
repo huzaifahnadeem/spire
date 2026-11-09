@@ -1,0 +1,7 @@
+The tool exports YAML logs into the format that MonPoly can use. The tool was made to make it easier to generate policies with different delta other other conditions. This feature, however, does not always work very well. At the moment, the policies/ directory has a set of policies that should be enough to start with. All the policies look for "mirrorred" messages i.e. for a message from main system looks for the same message from the twin (or the other way around). Policies' names are as follows: mirror_reference_msg_compare_with.mfotl. If "_either" is present at the end of the message then the policies requires both messages (active and twin) to have a corresponding message from the other system. All the policies right now have delta set to 100ms. Since the tool does not export new policies automatically well, its output directory is set to /tmp/log_export/ . The exported log "trace.log" is also exported here if running in offline mode. --out-dir input arg can be used to change it if needed. In --live mode, it is output to the stdout and is expected to be piped into MonPoly. 
+
+trace.sig can be passed to MonPoly which tells it what events can be present in the log so that it knows how to interpret it.
+
+
+Example Usage:
+python3 log_export.py ~/spire/data_collector/data_collector_logs/conf4_1788460735668761.yaml ~/spire/data_collector/data_collector_logs/conf6_1788460735663605.yaml --mirror RTU_PROXY_MAIN_MSG,RTU_PROXY_SHADOW_MSG --live | monpoly -sig trace.sig -formula policies/mirror_rtu_proxy_main_msg_rtu_proxy_shadow_msg_either.mfotl

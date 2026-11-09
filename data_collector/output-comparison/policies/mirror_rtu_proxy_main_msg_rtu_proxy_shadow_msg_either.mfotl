@@ -1,0 +1,7 @@
+( rtu_proxy_main_msg(system_id, offset, rtu, scen_type, incarnation, seq_num, sub, type, val)
+  AND NOT ( (ONCE[0,100000] (EXISTS system_id_b. rtu_proxy_shadow_msg(system_id_b, offset, rtu, scen_type, incarnation, seq_num, sub, type, val)))
+            OR (EVENTUALLY[0,100000] (EXISTS system_id_b. rtu_proxy_shadow_msg(system_id_b, offset, rtu, scen_type, incarnation, seq_num, sub, type, val))) ) )
+OR
+( rtu_proxy_shadow_msg(system_id, offset, rtu, scen_type, incarnation, seq_num, sub, type, val)
+  AND NOT ( (ONCE[0,100000] (EXISTS system_id_b. rtu_proxy_main_msg(system_id_b, offset, rtu, scen_type, incarnation, seq_num, sub, type, val)))
+            OR (EVENTUALLY[0,100000] (EXISTS system_id_b. rtu_proxy_main_msg(system_id_b, offset, rtu, scen_type, incarnation, seq_num, sub, type, val))) ) )
